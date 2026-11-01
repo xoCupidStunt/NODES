@@ -34,7 +34,7 @@ export function Results({ f }: { f: Factory }) {
   return (
     <div className="results">
       <div className="stats">
-        <Stat label="Output" value={`${fmt(plan.rate)} ${unit(f.target)}`} sub={itemName(f.target)} />
+        <Stat label="Output" value={`${fmt(plan.rate)} ${unit(f.target)}`} sub={plan.also.length ? `${itemName(f.target)} + ${plan.also.length} more product${plan.also.length > 1 ? 's' : ''}` : itemName(f.target)} />
         <Stat label="Most possible" value={plan.maxRate === null ? 'unlimited' : `${fmt(plan.maxRate)} ${unit(f.target)}`} sub={plan.maxRate === null ? 'no resource cap' : 'with claimed resources'} />
         <Stat label="Power" value={mw(plan.power.total)} sub={`${mw(plan.power.machines)} machines · ${mw(plan.power.extraction)} extraction`} />
         <Stat label="Machines" value={String(machineCount)} sub={`${plan.groups.length} recipes${plan.shardsUsed ? ` · ${plan.shardsUsed} shards` : ''}`} />
@@ -81,6 +81,12 @@ export function Results({ f }: { f: Factory }) {
               ))}
             </tbody>
           </table>
+          {plan.also.length > 0 && (
+            <>
+              <h3>Also makes</h3>
+              {plan.also.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}
+            </>
+          )}
           {plan.surplus.length > 0 && (
             <>
               <h3>Byproducts / leftovers</h3>

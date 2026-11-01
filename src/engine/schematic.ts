@@ -133,6 +133,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   for (const i of inputItems) (makers[i] ??= new Set()).add(0);
   (usersOf[target] ??= new Set()).add(0);
   for (const [i] of plan.surplus) (usersOf[i] ??= new Set()).add(0);
+  for (const [i] of plan.also) (usersOf[i] ??= new Set()).add(0);
 
   const flowRate = (item: string) => {
     let r = 0;
@@ -234,6 +235,11 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
       }
       if (item === target && fi === lastFloorFor(item)) {
         ports.push({ x: lane.x, y: portBottom, item, rate: plan.rate, dir: 'out', label: `OUT ${itemName(item)}${fi > 0 ? ' (lift to ground)' : ''}` });
+        touch(item, portBottom);
+      }
+      const extra = plan.also.find(([i]) => i === item);
+      if (extra && item !== target && fi === lastFloorFor(item)) {
+        ports.push({ x: lane.x, y: portBottom, item, rate: extra[1], dir: 'out', label: `OUT ${itemName(item)}${fi > 0 ? ' (lift to ground)' : ''}` });
         touch(item, portBottom);
       }
       const sur = plan.surplus.find(([i]) => i === item);

@@ -85,6 +85,8 @@ export interface Factory {
   useShards: boolean;
   schematic: SchematicOptions;
   createdAt: number;
+  /** Other products this factory also makes, at fixed rates. */
+  also: { item: string; rate: number }[];
   /** Set when the factory was added from the synced save. */
   game?: BuiltInfo;
 }

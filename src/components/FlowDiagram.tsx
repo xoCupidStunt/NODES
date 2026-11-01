@@ -21,7 +21,7 @@ export function FlowDiagram({ plan, target }: { plan: Plan; target: string }) {
   for (const g of plan.groups) {
     boxes.push({ id: g.id, col: g.depth + 1, title: `${g.count} × ${g.machine.name}`, sub: `${g.recipe.name} @ ${fmt(g.clock, 2)}%`, color: MACHINE_COLORS[g.machine.id] ?? '#888', x: 0, y: 0 });
   }
-  boxes.push({ id: 'out', col: maxDepth + 2, title: itemName(target), sub: `${fmt(plan.rate)}/min product`, color: itemColor(target), x: 0, y: 0 });
+  boxes.push({ id: 'out', col: maxDepth + 2, title: plan.also.length ? `${itemName(target)} + ${plan.also.length} more` : itemName(target), sub: plan.also.length ? `${fmt(plan.rate)}/min + ${plan.also.map(([i, v]) => `${fmt(v)} ${itemName(i)}`).join(', ')}`.slice(0, 34) : `${fmt(plan.rate)}/min product`, color: itemColor(target), x: 0, y: 0 });
   if (plan.surplus.length) boxes.push({ id: 'surplus', col: maxDepth + 2, title: 'Byproducts', sub: plan.surplus.map(([i]) => itemName(i)).join(', ').slice(0, 30), color: '#666', x: 0, y: 0 });
 
   const cols: Record<number, Box[]> = {};

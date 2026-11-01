@@ -1,9 +1,8 @@
 import { nodes, schematicsById } from '../data/game';
+import type { Progress } from './progression';
+import type { SaveLayout, SaveSummary } from './saveReader';
 
 const nodeIds = new Set(nodes.map((n) => n.id));
-import { detectFactories, type FoundFactory } from './gameFactories';
-import { computeUnlocks, type Progress } from './progression';
-import type { SaveSummary } from './saveReader';
 
 /** What the app remembers about the last save it synced. */
 export interface GameSync {
@@ -19,8 +18,8 @@ export interface GameSync {
   occupied: string[];
   shards: { total: number; slotted: number };
   sloops: { total: number; slotted: number };
-  /** Factories found in the save (connected production machines). */
-  factories: FoundFactory[];
+  /** Production machines, extractors and labels — factories are worked out from these. */
+  layout: SaveLayout;
 }
 
 /** Progress as recorded in the save. Shards and somersloops are the totals owned (slotted + spare). */
@@ -53,7 +52,7 @@ export function gameSyncFromSave(s: SaveSummary, fileModified: number | null, so
     occupied: s.occupied.filter((id) => nodeIds.has(id)),
     shards: s.shards,
     sloops: s.sloops,
-    factories: detectFactories(s.layout, computeUnlocks(progressFromSave(s))),
+    layout: s.layout,
   };
 }
 

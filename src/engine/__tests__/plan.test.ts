@@ -9,7 +9,7 @@ import { defaultSchematic, type Factory } from '../types';
 const progress = (tier: number): Progress => ({ tier, milestones: milestonesUpTo(tier), mam: [], alts: [], shards: 0, sloops: 0 });
 const factory = (patch: Partial<Factory>): Factory => ({
   id: 'a', name: 'Test', target: 'Desc_IronPlateReinforced_C', rate: 10, mode: 'power', placement: 'manual', location: null,
-  nodes: [], extraSupply: {}, imports: [], excluded: [], unlimitedRaw: true, clockCap: 100, useShards: false,
+  nodes: [], extraSupply: {}, also: [], imports: [], excluded: [], unlimitedRaw: true, clockCap: 100, useShards: false,
   schematic: { ...defaultSchematic }, createdAt: 0, ...patch,
 });
 
@@ -62,5 +62,18 @@ describe('plan', () => {
     expect(p.status).toBe('ok');
     const sch = buildSchematic(p, defaultSchematic, 'Desc_Computer_C');
     expect(sch.bom.length).toBeGreaterThan(3);
+  });
+});
+
+describe('several products', () => {
+  it('makes the extra products at their rates', () => {
+    const p = buildPlan(factory({ rate: 5, also: [{ item: 'Desc_IronScrew_C', rate: 30 }, { item: 'Desc_Wire_C', rate: 20 }] }), progress(2));
+    expect(p.status).toBe('ok');
+    expect(p.also).toEqual([['Desc_IronScrew_C', 30], ['Desc_Wire_C', 20]]);
+    const made = (item: string) => p.groups.flatMap((g) => g.outputs).filter(([i]) => i === item).reduce((a, [, v]) => a + v, 0);
+    const used = (item: string) => p.groups.flatMap((g) => g.inputs).filter(([i]) => i === item).reduce((a, [, v]) => a + v, 0);
+    expect(made('Desc_IronScrew_C') - used('Desc_IronScrew_C')).toBeCloseTo(30, 3);
+    expect(made('Desc_Wire_C') - used('Desc_Wire_C')).toBeCloseTo(20, 3);
+    expect(p.surplus.find(([i]) => i === 'Desc_Wire_C')).toBeUndefined();
   });
 });

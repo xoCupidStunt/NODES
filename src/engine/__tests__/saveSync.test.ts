@@ -70,3 +70,50 @@ describe.skipIf(!realSave)('factories in a real save', () => {
     for (const f of found) expect(f.rate).toBeGreaterThan(0);
   }, 60000);
 });
+
+describe.skipIf(!realSave)('combine and separate with a real save', () => {
+  it('splits by distance, merges, and round-trips planner factories', async () => {
+    const { noRules, factoryFromFound } = await import('../gameFactories');
+    const g = await import('../grouping');
+    const buf = readFileSync(realSave!);
+    const s = readSave(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), realSave!);
+    const progress = progressFromSave(s);
+    const game = gameSyncFromSave(s, null, 'file');
+    const base = { factories: [] as import('../types').Factory[], game, progress, groupRules: noRules };
+    const found = g.foundOf(base);
+    const big = found[0];
+
+    // Separate the biggest found factory.
+    const split = g.foundOf({ ...base, groupRules: g.separateFound(noRules, big.key, 100) });
+    const parts = split.filter((ff) => ff.origin?.kind === 'split');
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.reduce((a, p) => a + p.machines, 0)).toBe(big.machines);
+    // Undo puts it back.
+    const undone = g.foundOf({ ...base, groupRules: g.undoFound(g.separateFound(noRules, big.key, 100), parts[0]) });
+    expect(undone.length).toBe(found.length);
+
+    // Combine the next two.
+    const merged = g.foundOf({ ...base, groupRules: g.combineFound(noRules, [found[1].key, found[2].key]) });
+    expect(merged.length).toBe(found.length - 1);
+    expect(merged.find((ff) => ff.origin?.kind === 'merged')!.machines).toBe(found[1].machines + found[2].machines);
+
+    // Planner: add two found factories, combine them, then separate again.
+    const make = (n: number) => ({
+      id: 'f' + n + Math.random(), name: `F${n}`, target: '', rate: 1, mode: 'power' as const, placement: 'manual' as const, location: null,
+      nodes: [], extraSupply: {}, also: [], imports: [], excluded: [], unlimitedRaw: false, clockCap: 100, useShards: false,
+      schematic: { machineGap: 0, rowGap: 1, floors: 1, maxPerRow: 10, logistics: 'visible' as const, perimeterWalls: true, border: 1, snap: 'half' as const, showLabels: true, showRates: true, showPower: true },
+      createdAt: 0,
+    });
+    const a = { ...make(1), ...factoryFromFound(found[1]) };
+    const b = { ...make(2), ...factoryFromFound(found[2]) };
+    const st1 = { ...base, factories: [a, b] };
+    const c = g.combineFactories(st1, [a.id, b.id]);
+    expect(c.factories.length).toBe(1);
+    expect(c.factories[0].game!.machineIds.length).toBe(found[1].machines + found[2].machines);
+    const st2 = { ...st1, ...c };
+    const linkedNow = g.refreshLinked(st2.factories, g.foundOf(st2));
+    expect(linkedNow[0].game!.missing).toBeFalsy();
+    const sep = g.separateFactory({ ...st2, factories: linkedNow }, linkedNow[0].id, 100, make);
+    expect(sep.factories.length).toBeGreaterThan(1);
+  }, 60000);
+});

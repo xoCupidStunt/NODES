@@ -65,6 +65,8 @@ export interface Plan {
   inputs: InputLine[];
   extraction: ExtractionSite[];
   surplus: [string, number][];
+  /** Other products made alongside the target. */
+  also: [string, number][];
   power: { machines: number; extraction: number; total: number };
   machineArea: number;
   shardsUsed: number;
@@ -129,6 +131,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   const solve = solvePlan({
     target: f.target,
     rate: f.rate,
+    also: Object.fromEntries((f.also ?? []).filter((a) => a.item !== f.target && a.rate > 0).map((a) => [a.item, a.rate])),
     mode: f.mode,
     recipes: allowedRecipes(f, u),
     supply,
@@ -207,6 +210,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   }
   for (const [i, v] of Object.entries(solve.inputs)) (makers[i] ??= []).push(['in:' + i, v]);
   if (solve.rate > 0) (users[f.target] ??= []).push(['out', solve.rate]);
+  for (const a of f.also ?? []) if (solve.status === 'ok' && a.item !== f.target && a.rate > 0) (users[a.item] ??= []).push(['out', a.rate]);
   for (const [i, v] of Object.entries(solve.surplus)) (users[i] ??= []).push(['surplus', v]);
   const flows: Flow[] = [];
   for (const item of Object.keys(makers)) {
@@ -287,7 +291,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
       ? 'Set a target rate — with unlimited resources there is no maximum.'
       : 'No resources yet: claim nodes on the Map tab, add supply manually, or switch on "unlimited resources".');
   }
-  if (solve.status === 'infeasible') warnings.push('This product cannot be made with your unlocked recipes and the resources available.');
+  if (solve.status === 'infeasible') warnings.push((f.also ?? []).length ? 'This product mix cannot be made with your unlocked recipes and the resources available — try lower rates for the extra products.' : 'This product cannot be made with your unlocked recipes and the resources available.');
 
   return {
     status: solve.status,
@@ -299,6 +303,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     inputs,
     extraction,
     surplus: Object.entries(solve.surplus).sort((a, b) => b[1] - a[1]),
+    also: solve.status === 'ok' ? (f.also ?? []).filter((a) => a.item !== f.target && a.rate > 0).map((a) => [a.item, a.rate] as [string, number]) : [],
     power: { machines: machinePower, extraction: extractionPower2, total: machinePower + extractionPower2 },
     machineArea: groups.reduce((a, g) => a + g.machine.w * g.machine.l * g.count, 0),
     shardsUsed,

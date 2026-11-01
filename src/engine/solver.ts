@@ -15,6 +15,8 @@ export interface SolveInput {
   unlimitedRaw: boolean;
   /** Water is pumped on site (unlimited) unless capped in `supply`. */
   unlimitedWater: boolean;
+  /** Other products to make alongside the target, at fixed rates per minute. */
+  also?: Record<string, number>;
   /** Power per item/min for extracting each raw resource (to weigh extraction in power mode). */
   extractionPower?: Record<string, number>;
 }
@@ -95,6 +97,8 @@ function buildModel(input: SolveInput, objective: 'T' | 'cost', fixedRate: numbe
     }
   }
 
+  for (const [item, r] of Object.entries(input.also ?? {})) if (r > 0 && item !== input.target) constraints['i:' + item] = { min: r };
+
   if (fixedRate !== null) {
     constraints['i:' + input.target] = { min: fixedRate };
   } else {
@@ -130,6 +134,7 @@ function readSolution(sol: Solution<string>, input: SolveInput, rate: number, ma
   }
   for (const [item, v] of Object.entries(inputs)) net[item] = (net[item] ?? 0) + v;
   net[input.target] = (net[input.target] ?? 0) - rate;
+  for (const [item, r] of Object.entries(input.also ?? {})) if (item !== input.target) net[item] = (net[item] ?? 0) - r;
   const surplus: Record<string, number> = {};
   for (const [item, v] of Object.entries(net)) if (v > 1e-4) surplus[item] = v;
   return { status: 'ok', rate, maxRate, recipes: rec, inputs, surplus, power, area };

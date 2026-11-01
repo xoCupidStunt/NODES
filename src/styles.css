@@ -249,3 +249,19 @@ input[type='checkbox'] { accent-color: var(--accent); }
 .fit-row:has(> :nth-child(3):last-child) { grid-template-columns: 78px 1fr 40px; }
 details.fit { margin: 8px 0; }
 details.fit summary { cursor: pointer; color: var(--accent2); font-size: 13px; }
+
+/* Combine / separate */
+.game-factories td.pick { width: 24px; vertical-align: middle; }
+.game-factories tr.picked td { background: #3a2a1c55; }
+.game-factories .origin { margin-top: 3px; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent2); text-decoration: underline; cursor: pointer; font-size: inherit; }
+.combine-btn { border-color: var(--accent); }
+.split-row td { background: #12171d; }
+.separate { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; }
+.fit-row.wide { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.fit-row.wide input[type=range] { width: 220px; max-width: 100%; }
+.separate .parts { display: flex; flex-direction: column; gap: 3px; font-size: 12px; border-left: 3px solid #38bdf8; padding-left: 10px; }
+.separate .part .swatch { width: 8px; height: 8px; }
+.also { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.also-row { margin-bottom: 6px; }
+.combine-list { max-height: 220px; overflow: auto; margin-bottom: 8px; }

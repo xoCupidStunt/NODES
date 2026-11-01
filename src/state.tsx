@@ -3,7 +3,8 @@ import { buildPlan, type Plan } from './engine/plan';
 import { defaultProgress, type Progress } from './engine/progression';
 import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
-import { matchFound } from './engine/gameFactories';
+import { noRules, type FoundFactory, type GroupRules } from './engine/gameFactories';
+import { combineFactories, combineFound, foundOf, refreshLinked, separateFactory, splitRules, undoFound } from './engine/grouping';
 
 export type View = 'progress' | 'world' | 'setup' | 'results' | 'map' | 'schematic';
 
@@ -22,6 +23,8 @@ interface State {
   /** Names given to factories found in the save before they are added. */
   foundNames: Record<string, string>;
   mapFocus: MapFocus;
+  /** How the person combined or separated factories found in the save. */
+  groupRules: GroupRules;
 }
 
 type Action =
@@ -37,7 +40,12 @@ type Action =
   | { type: 'forgetGame' }
   | { type: 'addMany'; factories: Factory[] }
   | { type: 'renameFound'; key: string; name: string }
-  | { type: 'showOnMap'; focus: MapFocus };
+  | { type: 'showOnMap'; focus: MapFocus }
+  | { type: 'combineFound'; keys: string[] }
+  | { type: 'separateFound'; machineIds: string[]; gap: number }
+  | { type: 'undoFound'; found: FoundFactory }
+  | { type: 'combineFactories'; ids: string[] }
+  | { type: 'separateFactory'; id: string; gap: number };
 
 const KEY = 'ficsit-planner-v1';
 
@@ -65,13 +73,24 @@ function reducer(s: State, a: Action): State {
       return a.state;
     case 'gameSync': {
       // Refresh the as-built data of factories added from the game.
-      const { byFactory } = matchFound(a.game.factories, s.factories);
-      const factories = s.factories.map((f) => {
-        if (!f.game) return f;
-        const ff = byFactory.get(f.id);
-        return ff ? { ...f, game: { ...ff.built, updatedAt: Date.now() } } : { ...f, game: { ...f.game, missing: true } };
-      });
-      return { ...s, progress: a.progress, game: a.game, factories };
+      const next = { ...s, progress: a.progress, game: a.game };
+      return { ...next, factories: refreshLinked(s.factories, foundOf(next)) };
+    }
+    case 'combineFound':
+      return { ...s, groupRules: combineFound(s.groupRules, a.keys) };
+    case 'separateFound':
+      return { ...s, groupRules: splitRules(s, a.machineIds, a.gap) };
+    case 'undoFound':
+      return { ...s, groupRules: undoFound(s.groupRules, a.found) };
+    case 'combineFactories': {
+      const r = combineFactories(s, a.ids);
+      const next = { ...s, ...r, activeId: a.ids[0] };
+      return { ...next, factories: refreshLinked(next.factories, foundOf(next)) };
+    }
+    case 'separateFactory': {
+      const r = separateFactory(s, a.id, a.gap, newFactory);
+      const next = { ...s, factories: r.factories, groupRules: r.groupRules, activeId: r.activeId };
+      return { ...next, factories: refreshLinked(next.factories, foundOf(next)) };
     }
     case 'addMany':
       return { ...s, factories: [...s.factories, ...a.factories] };
@@ -97,6 +116,7 @@ export function newFactory(n: number): Factory {
     location: null,
     nodes: [],
     extraSupply: {},
+    also: [],
     imports: [],
     excluded: [],
     unlimitedRaw: false,
@@ -117,13 +137,14 @@ function load(): State {
       // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
       s.factories = s.factories.map((f) => ({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }));
-      if (s.game && !s.game.factories) s.game.factories = [];
-      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, sync: { ...defaultSync, ...s.sync } };
+      // Older saves stored found factories instead of the layout; resync to fill it in.
+      if (s.game && !s.game.layout) s.game.layout = { machines: [], extractors: [], labels: [] };
+      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, groupRules: s.groupRules ?? noRules, sync: { ...defaultSync, ...s.sync } };
     }
   } catch {
     /* ignore broken storage */
   }
-  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync, foundNames: {}, mapFocus: null };
+  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync, foundNames: {}, mapFocus: null, groupRules: noRules };
 }
 
 interface Ctx {
@@ -131,6 +152,8 @@ interface Ctx {
   dispatch: (a: Action) => void;
   active: Factory | null;
   plans: Record<string, Plan>;
+  /** Factories found in the synced save (with combine/separate rules applied). */
+  found: FoundFactory[];
 }
 const StoreCtx = createContext<Ctx | null>(null);
 
@@ -148,8 +171,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     for (const f of state.factories) out[f.id] = buildPlan(f, state.progress);
     return out;
   }, [state.factories, state.progress]);
+  const found = useMemo(() => foundOf(state), [state.game, state.progress, state.groupRules]); // eslint-disable-line react-hooks/exhaustive-deps
   const active = state.factories.find((f) => f.id === state.activeId) ?? null;
-  const value = useMemo(() => ({ state, dispatch, active, plans }), [state, active, plans]);
+  const value = useMemo(() => ({ state, dispatch, active, plans, found }), [state, active, plans, found]);
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }
 

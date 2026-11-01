@@ -5,6 +5,7 @@ import { helpfulFactories, rawDemand } from '../engine/placement';
 import type { Mode } from '../engine/solver';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
+import { CombineSeparateCard } from './CombineSeparateCard';
 import { fmt, ItemPicker, ItemTag, NumberInput } from './ui';
 
 const MODES: { id: Mode; title: string; text: string }[] = [
@@ -57,6 +58,23 @@ export function Setup({ f }: { f: Factory }) {
           )}
         </div>
         {!options.some((o) => o.id === f.target) && <p className="warn">{itemName(f.target)} can’t be made with your current unlocks.</p>}
+        <div className="also">
+          <h3>Also make</h3>
+          {f.also.length === 0 && <p className="muted small-text">Other products this factory makes at the same time (byproducts you ship, a second product line…).</p>}
+          {f.also.map((a, k) => (
+            <div key={k} className="row gap wrap also-row">
+              <ItemPicker value={a.item} options={options} onChange={(item) => update({ also: f.also.map((x, j) => (j === k ? { ...x, item } : x)) })} />
+              <NumberInput value={a.rate} step={0.5} onChange={(v) => update({ also: f.also.map((x, j) => (j === k ? { ...x, rate: v ?? 0 } : x)) })} />
+              <span className="muted">{items[a.item]?.form !== 'solid' ? 'm³' : ''}/min</span>
+              <button className="small ghost" onClick={() => update({ also: f.also.filter((_, j) => j !== k) })}>Remove</button>
+              {a.item === f.target && <span className="warn-text small-text">same as the main product — ignored</span>}
+            </div>
+          ))}
+          <button className="small" onClick={() => {
+            const next = options.find((o) => o.id !== f.target && !f.also.some((a) => a.item === o.id));
+            if (next) update({ also: [...f.also, { item: next.id, rate: 10 }] });
+          }}>+ Add product</button>
+        </div>
       </section>
 
       <section className="card">
@@ -161,6 +179,8 @@ export function Setup({ f }: { f: Factory }) {
           </div>
         </section>
       )}
+
+      <CombineSeparateCard f={f} />
 
       <div className="row gap">
         <button className="primary" onClick={() => dispatch({ type: 'view', view: f.location ? 'results' : 'map' })}>{f.location ? 'See results →' : 'Place on map →'}</button>
