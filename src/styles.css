@@ -198,3 +198,5 @@ input[type='checkbox'] { accent-color: var(--accent); }
 .drop-overlay div { border: 2px dashed var(--accent); border-radius: 14px; padding: 40px 60px; font-size: 18px; background: var(--panel); }
 .node-ingame { pointer-events: none; }
 .ring.ingame { border-color: #38bdf8; border-radius: 2px; }
+.sync-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.sync-steps a { color: var(--accent2); }

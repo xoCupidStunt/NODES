@@ -9,6 +9,7 @@ describe('save file names', () => {
   it('finds the session name', () => {
     expect(sessionFromFile('Project Make it Worse_autosave_1.sav')).toBe('Project Make it Worse');
     expect(sessionFromFile('Project Make it Worse_301026-163923.sav')).toBe('Project Make it Worse');
+    expect(sessionFromFile('Project Make it Worse_101026-005500_continue.sav')).toBe('Project Make it Worse');
     expect(sessionFromFile('My_World.sav')).toBe('My_World');
   });
 });

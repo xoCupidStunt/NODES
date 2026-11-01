@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state';
 import { useSaveSync } from '../sync/SaveSyncProvider';
 
-const SAVE_PATH = '%LOCALAPPDATA%\\FactoryGame\\Saved\\SaveGames';
+const SAVE_PATH = String.raw`%LOCALAPPDATA%\FactoryGame\Saved\SaveGames`;
+const HELPER_FOLDER = 'N.O.D.E.S Saves';
 
 export function ago(ms: number | null, now = Date.now()) {
   if (!ms) return 'unknown';
@@ -58,12 +59,18 @@ export function SaveSyncCard() {
 
       {sync.folder === 'none' && (
         <>
-          <p className="muted small-text">Point N.O.D.E.S at your save folder once. It then reads your newest save every time the game saves, and fills in tier, milestones, MAM research, alternates, power shards and somersloops. Nothing is uploaded — the save is read in this browser.</p>
-          <div className="row gap wrap">
-            <button className="primary" onClick={sync.connect}>Connect save folder</button>
-            <span className="muted small-text">Folder: <code>{SAVE_PATH}</code> <button className="small ghost" onClick={copyPath}>{copied ? 'Copied' : 'Copy path'}</button></span>
-          </div>
-          <p className="muted small-text">In the folder picker, paste the path into the address bar, then press <b>Select folder</b>.</p>
+          <p className="muted small-text">Connect a save folder once. N.O.D.E.S then reads your newest save every time the game saves, and fills in tier, milestones, MAM research, alternates, power shards and somersloops. Nothing is uploaded — the save is read in this browser.</p>
+          <ol className="sync-steps small-text">
+            <li>
+              <b>Install the save helper (once).</b> Chrome won’t open the game’s own save folder (it’s inside AppData), so this small script copies new saves to <code>Documents\{HELPER_FOLDER}</code>.{' '}
+              <a href="/nodes-save-helper.ps1" download>Download nodes-save-helper.ps1</a>, then right-click it → <b>Run with PowerShell</b>. It starts with Windows and runs in the background.
+            </li>
+            <li>
+              <button className="primary" onClick={sync.connect}>Connect save folder</button>{' '}
+              In the picker, click <b>Documents</b>, select <b>{HELPER_FOLDER}</b>, then press <b>Select folder</b>.
+            </li>
+          </ol>
+          <p className="muted small-text">Without the helper: drag a save from <code>{SAVE_PATH}</code> onto this page whenever you want to sync. <button className="small ghost" onClick={copyPath}>{copied ? 'Copied' : 'Copy that path'}</button></p>
         </>
       )}
 

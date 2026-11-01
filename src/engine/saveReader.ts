@@ -110,6 +110,6 @@ export function sessionFromFile(name: string) {
   return name
     .replace(/\.sav$/i, '')
     .replace(/_autosave_\d+$/i, '')
-    .replace(/_\d{6}-\d{6}$/, '')
-    .replace(/_(continue|quicksave|autosave)$/i, '');
+    .replace(/_(continue|quicksave|autosave)$/i, '')
+    .replace(/_\d{6}-\d{6}$/, '');
 }
