@@ -63,6 +63,26 @@ export function builtMaxFactory(f: Factory): Factory {
   return { ...base, nodes: [], extraSupply: supply };
 }
 
+/**
+ * The fair "best layout" to compare a built factory with: the same output and other products, the same
+ * inputs (its extractors at their clocks and its outside supply), any recipe you have, and clocks up to
+ * the highest you used in game — so overclocked builds are compared with overclocked plans.
+ */
+export function builtCompareFactory(f: Factory): Factory {
+  const g = f.game!;
+  const m = builtMaxFactory(f);
+  const top = Math.max(100, ...g.groups.flatMap((x) => x.clocks.map(([c]) => c)));
+  const out = g.outputs.find(([i]) => i === f.target)?.[1] ?? 0;
+  return {
+    ...m,
+    mode: f.mode === 'max' ? 'power' : f.mode,
+    rate: out,
+    excluded: f.excluded,
+    clockCap: Math.min(250, Math.round(top)),
+    useShards: top > 100.5,
+  };
+}
+
 /** What's spare right now: extractor output nobody uses, and surplus made here. */
 function spareOf(f: Factory) {
   const g = f.game!;

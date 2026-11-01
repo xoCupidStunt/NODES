@@ -2,7 +2,7 @@ import { useDeferredValue, useMemo } from 'react';
 import { extractors, isPower, itemColor, itemName, MACHINE_COLORS, POWER, RAW_ITEMS, WATER } from '../data/game';
 import { buildPlan, nodeById, nodeRate } from '../engine/plan';
 import { shortfallsOf, surplusItems } from '../engine/gameFactories';
-import { builtMaxFactory, builtSuggestions, groupRates } from '../engine/builtTips';
+import { builtCompareFactory, builtMaxFactory, builtSuggestions, groupRates } from '../engine/builtTips';
 import { SURPLUS_HELP } from './GameFactoriesCard';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
@@ -13,9 +13,10 @@ import { fmt, ItemTag, mw, rateText, Stat } from './ui';
 
 /** A factory that is already built in the game: what it makes, how well, and how to get more out of it. */
 export function BuiltView({ f }: { f: Factory }) {
-  const { state, dispatch, plans } = useStore();
+  const { state, dispatch } = useStore();
   const g = f.game!;
-  const best = plans[f.id];
+  // Best layout for the same output, inputs and clock ceiling as built (not the planner's defaults).
+  const best = useMemo(() => buildPlan(builtCompareFactory(f), state.progress), [f, state.progress]);
   // Most this factory could make from what its extractors deliver now and its outside supply.
   // The other products it makes in game stay at their current rates, so "more" never means "drop something else".
   const fMax = useMemo(() => builtMaxFactory(f), [f]);
@@ -201,7 +202,7 @@ export function BuiltView({ f }: { f: Factory }) {
               label="Power per item"
               pct={bestOk && powerPerItem > 0 ? Math.min(100, (bestPowerPerItem / powerPerItem) * 100) : null}
               value={bestOk ? `${fmt(powerPerItem, 2)} MW vs. best ${fmt(bestPowerPerItem, 2)} MW` : '—'}
-              note="Machine power per item/min of the main product, vs. the best layout for the same output."
+              note="Machine power per item/min of the main product, vs. the best layout for the same output and inputs."
             />}
             <Meter
               label="Machines"
@@ -245,7 +246,7 @@ export function BuiltView({ f }: { f: Factory }) {
         {bestOk && (
           <details className="card compare">
             <summary><h2>Recipe by recipe vs. the best layout</h2></summary>
-            <AsBuiltCard f={f} plan={best} />
+            <AsBuiltCard f={f} plan={best} note={`The best layout for the same output and other products, from the same inputs (what its extractors deliver now), with any recipe you have and clocks up to ${fmt(builtCompareFactory(f).clockCap, 0)}% like in game. Recipes only in the plan are highlighted — they’re worth a look.`} />
           </details>
         )}
 

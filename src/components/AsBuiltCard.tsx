@@ -6,7 +6,7 @@ import { ago } from './SaveSyncCard';
 import { surplusItems } from '../engine/gameFactories';
 
 /** Side-by-side: what's built in the game vs. the planner's plan for the same output. */
-export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
+export function AsBuiltCard({ f, plan, note }: { f: Factory; plan: Plan; note?: string }) {
   const g = f.game;
   if (!g) return null;
   const builtMachines = g.groups.reduce((a, x) => a + x.count, 0);
@@ -47,7 +47,7 @@ export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
                 <td className="num">{built ? <b>{built.count}</b> : '—'}</td>
                 <td className="small-text muted">{built ? built.clocks.map(([c, n]) => `${n}×${fmt(c, 1)}%`).join(', ') + (built.boosted ? ` · ${built.boosted} with somersloops` : '') : 'not built'}</td>
                 <td className={`num ${same ? '' : 'diff'}`}>{planned ? <b>{planned.count}</b> : '—'}</td>
-                <td className="small-text muted">{planned ? `${fmt(planned.clock, 2)}%` : 'not in plan'}</td>
+                <td className="small-text muted">{planned ? `${planned.count}×${fmt(planned.clock, 1)}%` : 'not in plan'}</td>
               </tr>
             );
           })}
@@ -58,7 +58,7 @@ export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
         {g.outputs.filter(([i]) => i !== f.target).map(([i, v]) => <span key={i} className={extra.has(i) ? 'make-surplus' : ''}><ItemTag item={i} rate={v} />{extra.has(i) && <span className="surplus-tag">surplus</span>}</span>)}
         {g.outputs.length <= 1 && <span className="muted">nothing else</span>}
       </div>
-      <p className="muted small-text">The plan is the planner’s best layout for the same output with your unlocks and build goal. Recipes only in the plan are highlighted — they’re worth a look. Change the goal or recipes on Setup to compare other options.</p>
+      <p className="muted small-text">{note ?? 'The plan is the planner’s best layout for the same output with your unlocks and build goal. Recipes only in the plan are highlighted — they’re worth a look. Change the goal or recipes on Setup to compare other options.'}</p>
     </section>
   );
 }
