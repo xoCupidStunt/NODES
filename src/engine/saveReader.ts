@@ -20,7 +20,8 @@ export interface SaveSummary {
 /** Machines and extractors with the belt/pipe network they belong to. */
 export interface SaveLayout {
   machines: { id: string; recipe: string; clock: number; boost: number; x: number; y: number; net: string }[];
-  extractors: { id: string; node: string; clock: number; net: string }[];
+  /** Miners, oil pumps, water extractors, resource well extractors and pressurizers. `node` is '' when not on a map node (water). */
+  extractors: { id: string; type?: string; node: string; clock: number; net: string; x?: number; y?: number }[];
   /** Map markers and train stations, to name factories. */
   labels: { name: string; x: number; y: number; kind: 'marker' | 'station' }[];
 }
@@ -126,9 +127,18 @@ export function readSave(bytes: ArrayBuffer, fileName: string, onProgress?: (p: 
     }
 
     const res = prop(o, 'mExtractableResource')?.value?.pathName;
-    if (typeof res === 'string' && res) {
-      occupied.add(tail(res));
-      layout.extractors.push({ id: o.instanceName, node: tail(res), clock: prop(o, 'mCurrentPotential')?.value ?? 1, net: '' });
+    if (typeof res === 'string' && res) occupied.add(tail(res));
+    const kind = o.typePath.split('.').pop() ?? '';
+    if (/^Build_(Miner|OilPump|WaterPump|FrackingExtractor|FrackingSmasher)/.test(kind)) {
+      layout.extractors.push({
+        id: o.instanceName,
+        type: kind,
+        node: typeof res === 'string' && res ? tail(res) : '',
+        clock: prop(o, 'mCurrentPotential')?.value ?? 1,
+        net: '',
+        x: t?.x,
+        y: t?.y,
+      });
     }
 
     const stacks = prop(o, 'mInventoryStacks')?.values;

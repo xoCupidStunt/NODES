@@ -16,7 +16,11 @@ export interface Tip {
 const fmt = (v: number, d = 1) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(d));
 const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
-export function suggestions(f: Factory, plan: Plan, progress: Progress, factories: Factory[], plans: Record<string, Plan>, inGame: string[] = []): Tip[] {
+/**
+ * `availableOnly`: only changes the player can make now — nothing that needs a recipe, building, research,
+ * shard or somersloop they don't have.
+ */
+export function suggestions(f: Factory, plan: Plan, progress: Progress, factories: Factory[], plans: Record<string, Plan>, inGame: string[] = [], availableOnly = false): Tip[] {
   const tips: Tip[] = [];
   if (plan.status !== 'ok') return tips;
   const u = plan.unlocks;
@@ -47,7 +51,7 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
   }
 
   // 2. Locked alternate recipes that would help (try each relevant one).
-  const lockedAlts = Object.values(recipes).filter((r) => r.alt && !u.recipes.has(r.id) && r.out.some(([i]) => chainItems.has(i)));
+  const lockedAlts = availableOnly ? [] : Object.values(recipes).filter((r) => r.alt && !u.recipes.has(r.id) && r.out.some(([i]) => chainItems.has(i)));
   const baseScore = objective(f, plan);
   const altTips: Tip[] = [];
   for (const r of lockedAlts.slice(0, 40)) {
@@ -93,9 +97,9 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     if (saved > 1) tips.push({ kind: 'clock', title: 'Underclock for more power savings', detail: `Adding one more machine to ${extra} groups and spreading the work saves about ${fmt(saved)} MW (power grows faster than speed).`, score: 35 });
   }
   if (!u.overclock) {
-    const src = game.schematics.find((s) => s.flags?.includes('BP_UnlockBuildOverclock_C'));
+    const src = availableOnly ? undefined : game.schematics.find((s) => s.flags?.includes('BP_UnlockBuildOverclock_C'));
     if (src && plan.groups.length > 2) tips.push({ kind: 'research', title: `Research "${src.name}" in the MAM`, detail: 'Unlocks overclocking with power shards, so fewer machines can do the same work (smaller factory).', score: 20 });
-  } else if (f.mode === 'area' && (!f.useShards || progress.shards === 0)) {
+  } else if (f.mode === 'area' && (!f.useShards || progress.shards === 0) && !(availableOnly && progress.shards === 0)) {
     tips.push({ kind: 'clock', title: 'Use power shards to shrink the factory', detail: 'Overclocking is unlocked. Enter your shard count in Progress and turn on "Use power shards" — each machine can run up to 250%.', score: 25 });
   }
 
@@ -104,6 +108,14 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     const final = plan.groups.filter((g) => g.outputs.some(([i]) => i === f.target) && g.machine.sloots > 0);
     for (const g of final) {
       const need = g.machine.sloots * g.count;
+      if (availableOnly && need > progress.sloops) {
+        // Only as many machines as the player has somersloops for.
+        const n = Math.floor(progress.sloops / g.machine.sloots);
+        if (n < 1) continue;
+        const extra = (plan.rate / g.count) * n;
+        tips.push({ kind: 'sloop', title: `Somersloops in ${n} of the ${g.count} ${g.recipe.name} ${g.machine.name}s`, detail: `You have ${progress.sloops} somersloops — ${n * g.machine.sloots} of them (${g.machine.sloots} each) double those machines' output: about +${fmt(extra)}/min with the same inputs. Power for those machines goes ×4.`, score: 45 });
+        continue;
+      }
       tips.push({ kind: 'sloop', title: `Somersloops in the ${g.recipe.name} ${g.machine.name}s`, detail: `${need} somersloops (${g.machine.sloots} each) double their output to ${fmt(plan.rate * 2)}/min with the same inputs. Power for those machines goes ×4.`, score: 45 });
     }
   }
@@ -117,7 +129,7 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     tips.push({
       kind: 'logistics',
       title: `${multi.length} line${multi.length > 1 ? 's' : ''} need more than one ${belts.at(-1)!.name}`,
-      detail: src ? `Unlock "${src.name}" (tier ${src.tier}) for ${nextBelt!.name} (${nextBelt!.rate}/min), or run parallel belts as shown in the schematic.` : 'Run parallel belts as shown in the schematic.',
+      detail: src && !availableOnly ? `Unlock "${src.name}" (tier ${src.tier}) for ${nextBelt!.name} (${nextBelt!.rate}/min), or run parallel belts as shown in the schematic.` : 'Run parallel belts or pipes for those lines (see the schematic).',
       score: 30,
     });
   }
@@ -131,7 +143,9 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
       ? `${users.map((o) => o.name).join(', ')} use${users.length === 1 ? 's' : ''} ${itemName(item)} — link it as an import there.`
       : isFluid(item)
         ? 'Fluids can’t be sunk directly — package it, burn it for power, or add a recipe that uses it.'
-        : `Send it to an AWESOME Sink for ${fmt((it?.sink ?? 0) * rate, 0)} points/min, or store it for later.`;
+        : availableOnly && !u.buildings.has('Build_ResourceSink_C')
+          ? 'Store it for later, or add a recipe you have that uses it.'
+          : `Send it to an AWESOME Sink for ${fmt((it?.sink ?? 0) * rate, 0)} points/min, or store it for later.`;
     if (item === 'Desc_NuclearWaste_C') detail = 'Nuclear waste must be stored or processed further (Plutonium) — it cannot be sunk.';
     tips.push({ kind: 'byproduct', title: `Byproduct: ${fmt(rate)}${isFluid(item) ? ' m³' : ''}/min ${itemName(item)}`, detail, score: 15 });
   }
@@ -149,13 +163,13 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
   }
 
   // 8. Next milestone that unlocks a better machine/extractor.
-  const nextMiner = ['Build_MinerMk2_C', 'Build_MinerMk3_C'].find((id) => !u.buildings.has(id));
+  const nextMiner = availableOnly ? undefined : ['Build_MinerMk2_C', 'Build_MinerMk3_C'].find((id) => !u.buildings.has(id));
   if (nextMiner && Object.keys(plan.solve.inputs).some((i) => RAW_ITEMS.includes(i) && i !== WATER && !isFluid(i))) {
     const src = buildingSource[nextMiner];
     if (src) tips.push({ kind: 'research', title: `${game.extractors[nextMiner].name} doubles node output`, detail: `Unlocked by "${src.name}"${src.type === 'milestone' ? ` (tier ${src.tier})` : ''}.`, score: 20 });
   }
 
-  if (f.location) {
+  if (f.location && !availableOnly) {
     const far = plan.extraction.filter((e) => e.node && dist(e.node, f.location!) > 800);
     if (far.length) tips.push({ kind: 'logistics', title: `${far.length} claimed node${far.length > 1 ? 's are' : ' is'} over 800 m away`, detail: 'Consider a train or truck route, or move the factory closer with "Suggest placement".', score: 20 });
   }

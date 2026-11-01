@@ -46,6 +46,20 @@ export interface BuiltGroup {
   boosted: number;
 }
 
+/** Extractors of one kind on one resource in a factory found in the save. */
+export interface BuiltExtractor {
+  /** Extractor building id (game data). */
+  type: string;
+  /** What it extracts ('' for resource well pressurizers). */
+  item: string;
+  count: number;
+  /** [clock %, how many] */
+  clocks: [number, number][];
+  /** Output per minute at the clocks set in game (before any belt/pipe limit). */
+  rate: number;
+  power: number;
+}
+
 /** What a factory looks like in the game, as read from the save. */
 export interface BuiltInfo {
   /** Save ids of its production machines, to recognise it in later saves. */
@@ -55,6 +69,8 @@ export interface BuiltInfo {
   outputs: [string, number][];
   inputs: [string, number][];
   power: number;
+  /** Miners, oil pumps, water extractors… on the factory's belts and pipes. */
+  extractors?: BuiltExtractor[];
   /** Area the machines cover (cm, world coordinates). */
   bounds?: { minX: number; minY: number; maxX: number; maxY: number };
   updatedAt: number;

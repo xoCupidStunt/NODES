@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo } from 'react';
-import { isPower, itemName, MACHINE_COLORS, machines, perMinute, POWER, RAW_ITEMS, recipes, WATER } from '../data/game';
+import { extractors, isPower, itemColor, itemName, MACHINE_COLORS, machines, perMinute, POWER, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { buildPlan, clockPower, nodeById, nodeRate } from '../engine/plan';
 import { recipePower } from '../engine/solver';
 import { surplusItems } from '../engine/gameFactories';
@@ -32,7 +32,15 @@ export function BuiltView({ f }: { f: Factory }) {
   const g = f.game!;
   const best = plans[f.id];
   // Most this factory could make from the nodes and outside supply it already has.
-  const fMax = useMemo<Factory>(() => ({ ...f, mode: 'max', rate: null }), [f]);
+  // The other products it makes in game stay at their current rates, so "more" never means "drop something else".
+  const fMax = useMemo<Factory>(() => {
+    const extra = surplusItems(f.game!);
+    const also = [...(f.also ?? [])];
+    for (const [item, rate] of f.game!.outputs) {
+      if (item !== f.target && !extra.has(item) && !also.some((a) => a.item === item)) also.push({ item, rate });
+    }
+    return { ...f, mode: 'max', rate: null, also };
+  }, [f]);
   const maxPlan = useMemo(() => buildPlan(fMax, state.progress), [fMax, state.progress]);
   const deferredMax = useDeferredValue(maxPlan);
 
@@ -47,13 +55,25 @@ export function BuiltView({ f }: { f: Factory }) {
   const slow = rows.filter((x) => x.avgClock < 99.5);
   const slowCount = slow.reduce((a, x) => a + x.g.count, 0);
 
-  // Raw resources: what the claimed nodes give vs. what the machines use.
+  // Extractors on the factory's belts and pipes (from the save), and what they deliver at their clocks.
+  const exs = g.extractors ?? [];
+  const exCount = exs.reduce((a, x) => a + x.count, 0);
+  const exPower = exs.reduce((a, x) => a + x.power, 0);
+  const own: Record<string, number> = {};
+  const ownCount: Record<string, number> = {};
+  for (const x of exs) if (x.item) { own[x.item] = (own[x.item] ?? 0) + x.rate; ownCount[x.item] = (ownCount[x.item] ?? 0) + x.count; }
+  const waterNeed = g.inputs.find(([i]) => i === WATER)?.[1] ?? 0;
+  const waterHave = own[WATER] ?? 0;
+
+  // Raw resources: what its extractors (or, before a resync, its nodes) give vs. what the machines use.
   const nodeSupply: Record<string, number> = {};
-  for (const id of f.nodes) {
+  if (exs.length) Object.assign(nodeSupply, own);
+  else for (const id of f.nodes) {
     const n = nodeById[id];
     if (n) nodeSupply[n.item] = (nodeSupply[n.item] ?? 0) + nodeRate(n, best.unlocks);
   }
-  // Water is pumped wherever needed, so it doesn't count against the nodes.
+  delete nodeSupply[WATER];
+  // Water is tracked on its own, so it doesn't count here.
   const rawUse = g.inputs.filter(([i]) => RAW_ITEMS.includes(i) && i !== WATER);
   const rawSupplied = Object.values(nodeSupply).reduce((a, b) => a + b, 0) + rawUse.reduce((a, [i]) => a + (f.extraSupply[i] ?? 0), 0);
   const rawUsed = rawUse.reduce((a, [, v]) => a + v, 0);
@@ -85,6 +105,29 @@ export function BuiltView({ f }: { f: Factory }) {
         detail: `${slow.map((x) => `${x.g.count} × ${x.r.name} at ${fmt(x.avgClock, 1)}%`).slice(0, 4).join(', ')}. At 100% they would make about ${gain} more per minute — if their inputs keep up.`,
       });
     }
+    // Water: what the machines need vs. what its water extractors pump.
+    if (waterNeed > 0.01 && exs.length) {
+      const pump = extractors.Build_WaterPump_C;
+      if (waterHave + 0.01 < waterNeed && best.unlocks.buildings.has(pump.id)) {
+        const short = waterNeed - waterHave;
+        const n = Math.ceil(short / pump.rate - 1e-9);
+        const have = ownCount[WATER]
+          ? `its ${ownCount[WATER]} water extractor${ownCount[WATER] > 1 ? 's pump' : ' pumps'} ${rateText(WATER, waterHave)}`
+          : 'no water extractors are connected';
+        t.push({
+          kind: 'resource', score: 90,
+          title: `Water is short by ${rateText(WATER, short)}`,
+          detail: `The machines need ${rateText(WATER, waterNeed)} but ${have}. Add ${n} Water Extractor${n > 1 ? 's' : ''}${n * pump.rate > short + 1e-6 ? ` (clocked to ${fmt((short / n / pump.rate) * 100, 1)}%)` : ''}.`,
+        });
+      } else if (waterHave - waterNeed >= pump.rate - 0.01) {
+        const spare = Math.floor((waterHave - waterNeed) / pump.rate + 1e-9);
+        t.push({
+          kind: 'clock', score: 25,
+          title: `${spare} water extractor${spare > 1 ? 's are' : ' is'} more than needed`,
+          detail: `They pump ${rateText(WATER, waterHave)} for a need of ${rateText(WATER, waterNeed)}. Removing ${spare > 1 ? 'them' : 'it'} or underclocking saves about ${mw(spare * pump.power)}. Keep them if you plan to grow the factory.`,
+        });
+      }
+    }
     if (bestOk) {
       const builtRecipes = new Set(g.groups.map((x) => x.recipe));
       const missing = best.groups.filter((x) => !builtRecipes.has(x.recipe.id) && x.recipe.alt);
@@ -102,7 +145,8 @@ export function BuiltView({ f }: { f: Factory }) {
       const made = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
       const used = made - left;
       const pct = made > 0 ? (used / made) * 100 : 0;
-      const gen = Object.values(recipes).find((r) => r.generator && !r.noPlan && r.in[0]?.[0] === item);
+      // Only a generator the player has unlocked.
+      const gen = Object.values(recipes).find((r) => r.generator && !r.noPlan && r.in[0]?.[0] === item && best.unlocks.buildings.has(r.machine));
       let idea = '';
       if (gen) {
         const per = gen.in[0][1];
@@ -117,7 +161,7 @@ export function BuiltView({ f }: { f: Factory }) {
       });
     }
     const fromSuggest = deferredMax.status === 'ok'
-      ? suggestions(fMax, deferredMax, state.progress, state.factories, plans, state.game?.occupied).filter((x) => x.kind !== 'clock' || x.title.includes('shard') || x.title.includes('Research'))
+      ? suggestions(fMax, deferredMax, state.progress, state.factories, plans, state.game?.occupied, true).filter((x) => x.kind !== 'clock' || x.title.includes('shard'))
       : [];
     return [...t, ...fromSuggest].sort((a, b) => b.score - a.score);
   }, [surplus, rows, possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
@@ -149,8 +193,8 @@ export function BuiltView({ f }: { f: Factory }) {
         <div className="stats">
           <Stat label="Main product" value={rateText(f.target, builtOut)} sub={itemName(f.target)} />
           <Stat label="Products" value={String(products.length)} sub={surplus.length ? `+ ${surplus.length} surplus` : 'made here'} />
-          <Stat label="Machines" value={String(machinesBuilt)} sub={`${g.groups.length} recipes`} />
-          <Stat label="Power used" value={mw(g.power)} sub="production machines" />
+          <Stat label="Machines" value={String(machinesBuilt)} sub={`${g.groups.length} recipes${exCount ? ` + ${exCount} extractors` : ''}`} />
+          <Stat label="Power used" value={mw(g.power + exPower)} sub={exCount ? `${mw(g.power)} machines · ${mw(exPower)} extractors` : 'production machines'} />
           {powerMade > 0 && <Stat label="Power made" value={mw(powerMade)} sub={`net ${powerMade - g.power >= 0 ? '+' : ''}${mw(powerMade - g.power)} to the grid`} />}
           <Stat label="Average clock" value={`${fmt(avgClock, 1)}%`} sub={slowCount ? `${slowCount} below 100%` : 'all at 100% or more'} />
         </div>
@@ -193,10 +237,7 @@ export function BuiltView({ f }: { f: Factory }) {
                   <tr key={i}>
                     <td><ItemTag item={i} rate={v} /></td>
                     <td className="muted small-text">
-                      {nodeSupply[i] ? `${f.nodes.filter((id) => nodeById[id]?.item === i).length} node${f.nodes.filter((id) => nodeById[id]?.item === i).length > 1 ? 's' : ''}` : ''}
-                      {nodeSupply[i] && f.extraSupply[i] ? ' + ' : ''}
-                      {f.extraSupply[i] ? 'from outside' : ''}
-                      {!nodeSupply[i] && !f.extraSupply[i] ? (RAW_ITEMS.includes(i) ? 'extractors' : 'made nearby') : ''}
+                      <SourceText item={i} need={v} own={own[i]} ownCount={ownCount[i]} nodes={f.nodes.filter((id) => nodeById[id]?.item === i).length} outside={f.extraSupply[i]} hasExtractors={exs.length > 0} />
                     </td>
                   </tr>
                 ))}
@@ -206,7 +247,7 @@ export function BuiltView({ f }: { f: Factory }) {
         </div>
 
         <section className="card">
-          <h2>Machines</h2>
+          <h2>Equipment</h2>
           <div className="table-scroll">
             <table className="table">
               <thead><tr><th>Machine</th><th>Recipe</th><th className="num">Count</th><th>Clocks</th><th>In / min</th><th>Out / min</th><th className="num">Power</th></tr></thead>
@@ -222,6 +263,18 @@ export function BuiltView({ f }: { f: Factory }) {
                     </td>
                     <td>{x.inputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
                     <td>{x.outputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
+                    <td className="num">{mw(x.power)}</td>
+                  </tr>
+                ))}
+                {exs.length > 0 && <tr className="equip-sep"><td colSpan={7}>Extraction</td></tr>}
+                {exs.map((x) => (
+                  <tr key={x.type + x.item}>
+                    <td><span className="mdot" style={{ background: x.item ? itemColor(x.item) : '#888' }} />{extractors[x.type]?.name ?? x.type}</td>
+                    <td className="muted">{x.item ? (x.item === WATER ? 'Water' : `${itemName(x.item)} node`) : 'powers the resource well'}</td>
+                    <td className="num"><b>{x.count}</b></td>
+                    <td className="small-text">{x.clocks.map(([c, n]) => `${n} × ${fmt(c, 1)}%`).join(', ')}</td>
+                    <td className="muted">—</td>
+                    <td>{x.item ? <ItemTag item={x.item} rate={x.rate} /> : <span className="muted">—</span>}</td>
                     <td className="num">{mw(x.power)}</td>
                   </tr>
                 ))}
@@ -269,7 +322,8 @@ export function BuiltView({ f }: { f: Factory }) {
         </section>
 
         <section className="card">
-          <h2>Get more out of it</h2>
+          <h2>Suggested changes</h2>
+          <p className="muted small-text">Only changes you can make now, with the buildings, recipes, power shards and somersloops you already have.</p>
           {deferredMax !== maxPlan && <p className="muted">Updating…</p>}
           {tips.length === 0 && <p className="muted">Nothing obvious to improve with what you have unlocked.</p>}
           <div className="tips">
@@ -304,4 +358,26 @@ function Meter({ label, pct, value, note }: { label: string; pct: number | null;
       <div className="small-text muted">{value} · {note}</div>
     </div>
   );
+}
+
+/** Where an input comes from: its own extractors (with a shortfall warning), nodes, outside supply. */
+function SourceText({ item, need, own, ownCount, nodes, outside, hasExtractors }: {
+  item: string; need: number; own?: number; ownCount?: number; nodes: number; outside?: number; hasExtractors: boolean;
+}) {
+  const parts: React.ReactNode[] = [];
+  if (own) {
+    const short = need - (outside ?? 0) - own;
+    parts.push(
+      <span key="own" className={short > 0.01 ? 'warn-text' : ''}>
+        {ownCount} {item === WATER ? 'water extractor' : 'extractor'}{(ownCount ?? 0) > 1 ? 's' : ''} give {rateText(item, own)}
+        {short > 0.01 ? ` — short ${rateText(item, short)}` : ''}
+      </span>,
+    );
+  } else if (nodes) parts.push(<span key="nodes">{nodes} node{nodes > 1 ? 's' : ''}</span>);
+  if (outside) parts.push(<span key="out">{parts.length ? ' + ' : ''}from outside</span>);
+  if (!parts.length) {
+    if (item === WATER) parts.push(<span key="w" className={hasExtractors ? 'warn-text' : ''}>{hasExtractors ? 'no water extractors connected' : 'water extractors'}</span>);
+    else parts.push(<span key="x">{RAW_ITEMS.includes(item) ? 'extractors' : 'made nearby'}</span>);
+  }
+  return <>{parts}</>;
 }

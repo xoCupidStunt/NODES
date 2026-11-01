@@ -92,3 +92,15 @@ describe('power as a product', () => {
     expect(sch.notes.some((n) => n.includes('750 MW'))).toBe(true);
   });
 });
+
+describe('suggestions with what is available', () => {
+  it('leaves out anything that needs an unlock', () => {
+    const f = factory({ rate: 20 });
+    const p = buildPlan(f, progress(2));
+    const all = suggestions(f, p, progress(2), [f], { a: p });
+    const avail = suggestions(f, p, progress(2), [f], { a: p }, [], true);
+    expect(all.some((t) => t.kind === 'recipe' || t.kind === 'research')).toBe(true);
+    expect(avail.some((t) => t.kind === 'recipe' || t.kind === 'research')).toBe(false);
+    expect(avail.every((t) => !/Unlock|Research|Mk\.3|hard drive/i.test(t.title + t.detail))).toBe(true);
+  });
+});

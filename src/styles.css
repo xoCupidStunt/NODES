@@ -292,3 +292,4 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .make-surplus { opacity: 0.75; font-style: italic; }
 .surplus-tag { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--warn); border: 1px solid #6b5a1f; border-radius: 4px; padding: 0 4px; margin-left: 6px; }
 .surplus-head { margin-top: 12px; }
+.equip-sep td { color: var(--accent2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding-top: 12px !important; }

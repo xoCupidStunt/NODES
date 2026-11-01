@@ -1,9 +1,9 @@
-import { isPower, itemName, items, machines, perMinute, RAW_ITEMS, recipes, WATER } from '../data/game';
+import { extractors, isPower, itemName, items, machines, perMinute, PURITY_MULT, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { clockPower, nodeById, nodeRate } from './plan';
 import type { Unlocks } from './progression';
 import type { SaveLayout } from './saveReader';
 import { recipePower } from './solver';
-import type { BuiltGroup, BuiltInfo, Factory } from './types';
+import type { BuiltExtractor, BuiltGroup, BuiltInfo, Factory } from './types';
 
 type Machine = SaveLayout['machines'][number];
 
@@ -39,7 +39,17 @@ export const noRules: GroupRules = { merges: [], splits: [] };
 
 const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
-interface Group { machines: Machine[]; nodes: string[]; origin?: FoundFactory['origin'] }
+type Ex = SaveLayout['extractors'][number];
+interface Group { machines: Machine[]; extractors: Ex[]; nodes: string[]; origin?: FoundFactory['origin'] }
+
+/** Map nodes mined by these extractors. */
+const nodesOf = (exs: Ex[]) => [...new Set(exs.map((e) => e.node).filter((id) => nodeById[id]))];
+
+/** Extractor building of a saved extractor (older saves only kept the id, which contains it). */
+export const extractorType = (e: Ex) => e.type ?? e.id.match(/(Build_[A-Za-z0-9]+_C)_d+$/)?.[1] ?? '';
+
+/** Where an extractor stands: its own position, else the node it sits on. */
+const exAt = (e: Ex) => (e.x !== undefined && e.y !== undefined ? { x: e.x, y: e.y } : nodeById[e.node] ?? null);
 
 /** The game-data recipe a saved machine runs. Generators are saved as "GEN|<building>|<fuel or geyser node>". */
 function resolveRecipe(m: Machine): string | null {
@@ -60,43 +70,45 @@ export function groupMachines(layout: SaveLayout, rules: GroupRules = noRules): 
     const m = recipe === raw.recipe ? raw : { ...raw, recipe };
     byNet.set(m.net, [...(byNet.get(m.net) ?? []), m]);
   }
-  const nodesByNet = new Map<string, string[]>();
+  const exByNet = new Map<string, Ex[]>();
   for (const e of layout.extractors) {
-    if (!nodeById[e.node]) continue;
-    nodesByNet.set(e.net, [...new Set([...(nodesByNet.get(e.net) ?? []), e.node])]);
+    if (!extractors[extractorType(e)]) continue;
+    exByNet.set(e.net, [...(exByNet.get(e.net) ?? []), e]);
   }
-  let groups: Group[] = [...byNet].map(([net, ms]) => ({ machines: ms, nodes: nodesByNet.get(net) ?? [] }));
+  let groups: Group[] = [...byNet].map(([net, ms]) => {
+    const exs = exByNet.get(net) ?? [];
+    return { machines: ms, extractors: exs, nodes: nodesOf(exs) };
+  });
 
   for (const rule of rules.splits) {
     const i = groups.findIndex((g) => g.machines.some((m) => m.id === rule.anchor));
     if (i < 0) continue;
     const parts = splitParts(groups[i].machines, rule.gap);
     if (parts.length < 2) continue;
-    // Each mined node goes to the part with the closest machine.
-    const nodesFor = parts.map(() => [] as string[]);
-    for (const id of groups[i].nodes) {
-      const n = nodeById[id];
+    // Each extractor goes to the part with the closest machine.
+    const exFor = parts.map(() => [] as Ex[]);
+    for (const e of groups[i].extractors) {
+      const at = exAt(e);
       let best = 0;
       let bestD = Infinity;
-      parts.forEach((p, k) => {
-        for (const m of p) {
-          const d = Math.hypot(m.x - n.x, m.y - n.y);
-          if (d < bestD) { bestD = d; best = k; }
-        }
-      });
-      nodesFor[best].push(id);
+      if (at) {
+        parts.forEach((p, k) => {
+          for (const m of p) {
+            const d = Math.hypot(m.x - at.x, m.y - at.y);
+            if (d < bestD) { bestD = d; best = k; }
+          }
+        });
+      }
+      exFor[best].push(e);
     }
-    groups.splice(i, 1, ...parts.map((p, k) => ({ machines: p, nodes: nodesFor[k], origin: { kind: 'split' as const, anchor: rule.anchor } })));
+    groups.splice(i, 1, ...parts.map((p, k) => ({ machines: p, extractors: exFor[k], nodes: nodesOf(exFor[k]), origin: { kind: 'split' as const, anchor: rule.anchor } })));
   }
 
   for (const anchors of rules.merges) {
     const hit = groups.filter((g) => g.machines.some((m) => anchors.includes(m.id)));
     if (hit.length < 2) continue;
-    const merged: Group = {
-      machines: hit.flatMap((g) => g.machines),
-      nodes: [...new Set(hit.flatMap((g) => g.nodes))],
-      origin: { kind: 'merged' },
-    };
+    const exs = hit.flatMap((g) => g.extractors);
+    const merged: Group = { machines: hit.flatMap((g) => g.machines), extractors: exs, nodes: nodesOf(exs), origin: { kind: 'merged' } };
     groups = [...groups.filter((g) => !hit.includes(g)), merged];
   }
   return groups;
@@ -155,11 +167,14 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
   const [target, rate] = outputs[0];
 
   const nodeIds = g.nodes;
+  const exGroups = describeExtractors(g.extractors);
   const extraSupply: Record<string, number> = {};
   for (const [item, need] of inputs) {
-    if (item === WATER) continue; // water extractors aren't tied to nodes; water is unlimited
+    if (item === WATER) continue; // the planner pumps water wherever it's needed
+    // What this factory's own extractors deliver (at their in-game clocks); fall back to the node's best rate.
+    const own = exGroups.filter((x) => x.item === item).reduce((a, x) => a + x.rate, 0);
     const mined = RAW_ITEMS.includes(item)
-      ? nodeIds.map((id) => nodeById[id]).filter((n) => n.item === item).reduce((a, n) => a + nodeRate(n, u), 0)
+      ? own || nodeIds.map((id) => nodeById[id]).filter((n) => n.item === item).reduce((a, n) => a + nodeRate(n, u), 0)
       : 0;
     if (need - mined > 0.01) extraSupply[item] = round(need - mined);
   }
@@ -184,12 +199,53 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
       outputs: outputs.sort((a, b) => b[1] - a[1]),
       inputs: inputs.sort((a, b) => b[1] - a[1]),
       power: round(power, 1),
+      extractors: exGroups,
       bounds: {
         minX: Math.min(...ms.map((m) => m.x)), minY: Math.min(...ms.map((m) => m.y)),
         maxX: Math.max(...ms.map((m) => m.x)), maxY: Math.max(...ms.map((m) => m.y)),
       },
     },
   };
+}
+
+/** Extractors summed by kind and resource, with output and power at their in-game clocks. */
+export function describeExtractors(exs: Ex[]): BuiltExtractor[] {
+  const out = new Map<string, BuiltExtractor & { clockMap: Map<number, number> }>();
+  for (const e of exs) {
+    const type = extractorType(e);
+    const x = extractors[type];
+    if (!x) continue;
+    const node = nodeById[e.node];
+    const item = x.kind === 'water' ? WATER : x.kind === 'pressurizer' ? '' : node?.item ?? '';
+    if (x.kind !== 'water' && x.kind !== 'pressurizer' && !item) continue;
+    const mult = node ? PURITY_MULT[node.purity] : 1;
+    const key = type + '|' + item;
+    const cur = out.get(key) ?? { type, item, count: 0, clocks: [], rate: 0, power: 0, clockMap: new Map<number, number>() };
+    cur.count++;
+    cur.rate += x.rate * mult * e.clock;
+    cur.power += x.power * Math.pow(e.clock, 1.321929);
+    const c = round(e.clock * 100, 4);
+    cur.clockMap.set(c, (cur.clockMap.get(c) ?? 0) + 1);
+    out.set(key, cur);
+  }
+  return [...out.values()]
+    .map(({ clockMap, ...x }) => ({ ...x, rate: round(x.rate, 3), power: round(x.power, 2), clocks: [...clockMap.entries()].sort((a, b) => b[1] - a[1]) }))
+    .sort((a, b) => b.count - a.count);
+}
+
+/** Merge extractor lists of several factories. */
+function mergeExtractors(lists: BuiltExtractor[][]): BuiltExtractor[] {
+  const out = new Map<string, BuiltExtractor & { clockMap: Map<number, number> }>();
+  for (const x of lists.flat()) {
+    const key = x.type + '|' + x.item;
+    const cur = out.get(key) ?? { ...x, count: 0, rate: 0, power: 0, clocks: [], clockMap: new Map<number, number>() };
+    cur.count += x.count;
+    cur.rate += x.rate;
+    cur.power += x.power;
+    for (const [c, n] of x.clocks) cur.clockMap.set(c, (cur.clockMap.get(c) ?? 0) + n);
+    out.set(key, cur);
+  }
+  return [...out.values()].map(({ clockMap, ...x }) => ({ ...x, clocks: [...clockMap.entries()].sort((a, b) => b[1] - a[1]) }));
 }
 
 /** Group the save's machines and describe each group as a factory. */
@@ -297,6 +353,7 @@ export function combineBuilt(list: Omit<BuiltInfo, 'updatedAt'>[]): Omit<BuiltIn
     outputs: Object.entries(flow).filter(([, v]) => v > 0.01).map(([i, v]) => [i, round(v, 3)] as [string, number]).sort((a, b) => b[1] - a[1]),
     inputs: Object.entries(flow).filter(([, v]) => v < -0.01).map(([i, v]) => [i, round(-v, 3)] as [string, number]).sort((a, b) => b[1] - a[1]),
     power: round(list.reduce((a, b) => a + b.power, 0), 1),
+    extractors: mergeExtractors(list.map((b) => b.extractors ?? [])),
     bounds: bs.length ? {
       minX: Math.min(...bs.map((b) => b.minX)), minY: Math.min(...bs.map((b) => b.minY)),
       maxX: Math.max(...bs.map((b) => b.maxX)), maxY: Math.max(...bs.map((b) => b.maxY)),

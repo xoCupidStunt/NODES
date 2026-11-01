@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo } from 'react';
-import { itemName, MACHINE_COLORS, unit } from '../data/game';
+import { itemColor, itemName, MACHINE_COLORS, unit, WATER } from '../data/game';
 import { suggestions } from '../engine/suggest';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
@@ -17,6 +17,21 @@ export function Results({ f }: { f: Factory }) {
   const deferred = useDeferredValue(plan);
   const tips = useMemo(() => suggestions(f, deferred, state.progress, state.factories, plans, state.game?.occupied), [f, deferred, state.progress, state.factories, plans, state.game]);
   const machineCount = plan.groups.reduce((a, g) => a + g.count, 0);
+  // Extractors as equipment: grouped by building and resource.
+  const extractionRows = useMemo(() => {
+    const m = new Map<string, { key: string; name: string; what: string; item: string; count: number; rate: number; power: number; clocks: Set<string> }>();
+    for (const e of plan.extraction) {
+      const key = e.extractor.id + '|' + e.item;
+      const what = e.extractor.kind === 'pressurizer' ? 'powers the resource well' : e.item === WATER ? 'Water' : `${itemName(e.item)} ${e.extractor.kind === 'well' ? 'well' : 'node'}`;
+      const cur = m.get(key) ?? { key, name: e.extractor.name, what, item: e.extractor.kind === 'pressurizer' ? '' : e.item, count: 0, rate: 0, power: 0, clocks: new Set<string>() };
+      cur.count += e.count;
+      cur.rate += e.rate;
+      cur.power += e.power;
+      if (e.extractor.kind !== 'pressurizer') cur.clocks.add(`${fmt(e.clock, 1)}%`);
+      m.set(key, cur);
+    }
+    return [...m.values()].map((x) => ({ ...x, clock: x.clocks.size === 1 ? [...x.clocks][0] : x.clocks.size ? 'varies' : '—' }));
+  }, [plan.extraction]);
 
   if (plan.status !== 'ok') {
     return (
@@ -66,6 +81,20 @@ export function Results({ f }: { f: Factory }) {
                 <td className="num">{mw(g.power)}</td>
                 <td>{g.inputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
                 <td>{g.outputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
+              </tr>
+            ))}
+            {extractionRows.length > 0 && <tr className="equip-sep"><td colSpan={9}>Extraction</td></tr>}
+            {extractionRows.map((x) => (
+              <tr key={x.key}>
+                <td><span className="mdot" style={{ background: x.item ? itemColor(x.item) : '#888' }} />{x.name}</td>
+                <td className="muted">{x.what}</td>
+                <td className="num"><b>{x.count}</b></td>
+                <td className="num">{x.clock}</td>
+                <td className="muted small-text">—</td>
+                <td className="num">—</td>
+                <td className="num">{mw(x.power)}</td>
+                <td className="muted">—</td>
+                <td>{x.item ? <ItemTag item={x.item} rate={x.rate} /> : <span className="muted">—</span>}</td>
               </tr>
             ))}
           </tbody>
