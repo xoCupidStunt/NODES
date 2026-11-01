@@ -34,23 +34,52 @@ export function nearestNodes(item: string, at: { x: number; y: number }, taken: 
     .slice(0, limit);
 }
 
-/** Greedy: for each needed resource take the nearest free nodes until the demand is covered. */
-export function pickNodes(demand: Record<string, number>, at: { x: number; y: number }, taken: Set<string>, u: Unlocks) {
+/**
+ * For each needed resource, the free nodes that cover the demand: no farther out than the nearest nodes
+ * would reach, and among those the fewest nodes with the least left over — so a factory needing 120/min
+ * takes a normal node rather than a pure one next to it, and never keeps a node it doesn't need.
+ */
+export function pickNodes(demand: Record<string, number>, at: { x: number; y: number }, taken: Set<string>, u: Unlocks, fit = true) {
   const picked: ResourceNode[] = [];
   let cost = 0;
   let weight = 0;
   let short = 0;
   for (const [item, need] of Object.entries(demand)) {
+    const candidates = nodes
+      .filter((n) => n.item === item && !taken.has(n.id) && n.type !== 'geyser')
+      .map((n) => ({ n, d: dist(n, at), r: nodeRate(n, u) }))
+      .filter((c) => c.r > 0)
+      .sort((a, b) => a.d - b.d);
+    // Nearest first until covered: how far out we have to go.
+    const greedy: typeof candidates = [];
+    let sum = 0;
+    for (const c of candidates) {
+      if (sum >= need - 1e-6) break;
+      greedy.push(c);
+      sum += c.r;
+    }
+    let chosen = greedy;
+    // `fit` off: nearest first only — quick enough to score hundreds of spots.
+    if (fit && sum >= need - 1e-6) {
+      // Best set within that reach (+100 m): least left over, then shortest belts, then fewest nodes.
+      const reach = greedy[greedy.length - 1].d + 100;
+      const pool = candidates.filter((c) => c.d <= reach).slice(0, 12);
+      let best: { set: typeof candidates; key: [number, number, number] } | null = null;
+      for (let mask = 1; mask < 1 << pool.length; mask++) {
+        const set = pool.filter((_, k) => mask & (1 << k));
+        const total = set.reduce((a, c) => a + c.r, 0);
+        if (total < need - 1e-6) continue;
+        const key: [number, number, number] = [Math.round(total - need), set.reduce((a, c) => a + c.d, 0), set.length];
+        const better = !best || key[0] < best.key[0] || (key[0] === best.key[0] && (key[1] < best.key[1] - 1e-6 || (Math.abs(key[1] - best.key[1]) < 1e-6 && key[2] < best.key[2])));
+        if (better) best = { set, key };
+      }
+      if (best) chosen = best.set.sort((a, b) => a.d - b.d);
+    }
     let left = need;
-    const candidates = nodes.filter((n) => n.item === item && !taken.has(n.id) && n.type !== 'geyser');
-    candidates.sort((a, b) => dist(a, at) - dist(b, at));
-    for (const n of candidates) {
-      if (left <= 1e-6) break;
-      const r = nodeRate(n, u);
-      if (r <= 0) continue;
-      const use = Math.min(left, r);
-      picked.push(n);
-      cost += use * dist(n, at);
+    for (const c of chosen) {
+      const use = Math.min(left, c.r);
+      picked.push(c.n);
+      cost += use * c.d;
       weight += use;
       left -= use;
     }
@@ -80,7 +109,7 @@ export function suggestLocation(f: Factory, factories: Factory[], progress: Prog
   if (!Object.keys(demand).length && !pulls.length) return null;
 
   const score = (at: { x: number; y: number }) => {
-    const p = pickNodes(demand, at, taken, u);
+    const p = pickNodes(demand, at, taken, u, false);
     let cost = p.avgDistance * Object.values(demand).reduce((a, b) => a + b, 0);
     for (const pl of pulls) cost += dist(pl.at, at) * pl.rate;
     cost += p.short * 5000; // strongly avoid spots that can't be fully supplied

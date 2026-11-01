@@ -43,3 +43,23 @@ describe('logistics check for a new factory', () => {
     expect(far.options![0]).toMatch(/Iron Ingot factory by the nodes/);
   });
 });
+
+describe('node picking', () => {
+  it('never claims a node the demand does not need', async () => {
+    const { pickNodes } = await import('../placement');
+    const { computeUnlocks } = await import('../progression');
+    const { nodeRate } = await import('../plan');
+    const u = computeUnlocks(progress);
+    const spots = nodes.filter((n) => n.item === 'Desc_Coal_C').slice(0, 6).map((n) => ({ x: n.x + 30000, y: n.y }));
+    for (const at of spots) {
+      for (const need of [50, 130, 544]) {
+        const { picked, short } = pickNodes({ Desc_Coal_C: need }, at, new Set(), u);
+        if (short > 0) continue;
+        const rates = picked.map((n) => nodeRate(n, u));
+        const total = rates.reduce((a, b) => a + b, 0);
+        // Dropping any one node must leave it short.
+        for (const r of rates) expect(total - r).toBeLessThan(need - 1e-6);
+      }
+    }
+  });
+});
