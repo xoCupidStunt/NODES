@@ -55,6 +55,8 @@ export interface BuiltInfo {
   outputs: [string, number][];
   inputs: [string, number][];
   power: number;
+  /** Area the machines cover (cm, world coordinates). */
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
   updatedAt: number;
   /** True when the last synced save no longer has these machines. */
   missing?: boolean;

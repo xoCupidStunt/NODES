@@ -99,6 +99,10 @@ export function detectFactories(layout: SaveLayout, u: Unlocks): FoundFactory[] 
         outputs: outputs.sort((a, b) => b[1] - a[1]),
         inputs: inputs.sort((a, b) => b[1] - a[1]),
         power: round(power, 1),
+        bounds: {
+          minX: Math.min(...ms.map((m) => m.x)), minY: Math.min(...ms.map((m) => m.y)),
+          maxX: Math.max(...ms.map((m) => m.x)), maxY: Math.max(...ms.map((m) => m.y)),
+        },
       },
     });
   }
@@ -168,9 +172,9 @@ export function matchFound(found: FoundFactory[], factories: Factory[]) {
 }
 
 /** Fields for a new planner factory that mirrors a found one. */
-export function factoryFromFound(ff: FoundFactory): Partial<Factory> {
+export function factoryFromFound(ff: FoundFactory, name = ff.name): Partial<Factory> {
   return {
-    name: ff.name,
+    name: name.trim() || ff.name,
     target: ff.target,
     rate: ff.rate,
     mode: 'power',

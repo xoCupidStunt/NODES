@@ -4,6 +4,7 @@ import { nodeById, nodeRate } from '../engine/plan';
 import { claimedElsewhere, dist, helpfulFactories, nearestNodes, pickNodes, rawDemand, suggestLocation } from '../engine/placement';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
+import { foundName, useFoundFactories } from './GameFactoriesCard';
 import { idbGet, idbSet } from './idb';
 import { fmt, ItemTag } from './ui';
 
@@ -17,6 +18,8 @@ export function MapView({ f }: { f: Factory }) {
   const { state, dispatch, plans } = useStore();
   const plan = plans[f.id];
   const update = (patch: Partial<Factory>) => dispatch({ type: 'update', id: f.id, patch });
+  const { found, byFound } = useFoundFactories();
+  const [hoverFound, setHoverFound] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [vb, setVb] = useState<ViewBox>(() =>
     f.location ? { x: f.location.x - 100000, y: f.location.y - 100000, w: 200000 } : { x: WORLD.minX, y: WORLD.minY, w: SIZE.w },
@@ -213,6 +216,7 @@ export function MapView({ f }: { f: Factory }) {
           <div className="legend small-text">
             <div><svg width="14" height="14"><circle cx="7" cy="7" r="4" fill="#aaa" /></svg> impure · <svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="#aaa" /></svg> normal · <svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#aaa" /></svg> pure</div>
             <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" transform="rotate(45 7 7)" fill="#aaa" /></svg> resource well satellite</div>
+            {found.length > 0 && <div><span className="wmark found" /> built in your game, not added yet</div>}
             <div><span className="ring mine" /> claimed here · <span className="ring near" /> nearest free · <span className="ring other" /> claimed by another factory</div>
             {state.game && <div><span className="ring ingame" /> already mined in your game ({inGame.size} nodes, from “{state.game.saveName}”)</div>}
           </div>
@@ -277,6 +281,20 @@ export function MapView({ f }: { f: Factory }) {
             );
           })}
 
+          {/* Factories built in the game that aren't in the planner yet */}
+          {found.filter((ff) => !byFound.has(ff.key) && ff.machines > 2).map((ff) => {
+            const s = 7 * pxToWorld;
+            const b = ff.built.bounds;
+            const name = foundName(ff, state.foundNames);
+            return (
+              <g key={ff.key} className="fmark" onPointerEnter={() => setHoverFound(`${name} · ${ff.machines} machines · built in your game, not added (add it from Progress or the World map)`)} onPointerLeave={() => setHoverFound(null)}>
+                {b && <rect x={b.minX - 1500} y={b.minY - 1500} width={b.maxX - b.minX + 3000} height={b.maxY - b.minY + 3000} pointerEvents="none" className="footprint found" strokeWidth={1.2 * pxToWorld} strokeDasharray={`${4 * pxToWorld} ${3 * pxToWorld}`} />}
+                <rect x={ff.location.x - s} y={ff.location.y - s} width={s * 2} height={s * 2} transform={`rotate(45 ${ff.location.x} ${ff.location.y})`} className="wfound" strokeWidth={1.5 * pxToWorld} />
+                {vb.w < 250000 && <text x={ff.location.x} y={ff.location.y - s - 6 * pxToWorld} fontSize={11 * pxToWorld} textAnchor="middle" className="fmark-label found">{name}</text>}
+              </g>
+            );
+          })}
+
           {state.factories.map((o) => {
             if (!o.location) return null;
             const active = o.id === f.id;
@@ -284,14 +302,17 @@ export function MapView({ f }: { f: Factory }) {
             return (
               <g key={o.id} className="fmark" onPointerUp={(e) => { if (!drag.current?.moved && !placing && !active) { e.stopPropagation(); drag.current = null; dispatch({ type: 'select', id: o.id }); } }}>
                 {helperIds.has(o.id) && <circle cx={o.location.x} cy={o.location.y} r={s * 2} fill="none" stroke="#4ade80" strokeWidth={2.5 * pxToWorld} />}
-                <rect x={o.location.x - s} y={o.location.y - s} width={s * 2} height={s * 2} rx={2 * pxToWorld} className={active ? 'fmark-active' : 'fmark-other'} strokeWidth={2 * pxToWorld} />
+                {o.game?.bounds && <rect x={o.game.bounds.minX - 1500} y={o.game.bounds.minY - 1500} width={o.game.bounds.maxX - o.game.bounds.minX + 3000} height={o.game.bounds.maxY - o.game.bounds.minY + 3000} className="footprint linked" strokeWidth={1.2 * pxToWorld} pointerEvents="none" />}
+                <rect x={o.location.x - s} y={o.location.y - s} width={s * 2} height={s * 2} rx={2 * pxToWorld} className={active ? 'fmark-active' : o.game ? 'fmark-linked' : 'fmark-other'} strokeWidth={2 * pxToWorld} />
                 <text x={o.location.x} y={o.location.y - s - 5 * pxToWorld} fontSize={12 * pxToWorld} textAnchor="middle" className="fmark-label">{o.name}</text>
               </g>
             );
           })}
         </svg>
         <div className="map-hud">
-          {hoverNode ? (
+          {hoverFound ? (
+            <span>{hoverFound}</span>
+          ) : hoverNode ? (
             <span>
               <b>{hoverNode.purity}</b> {itemName(hoverNode.item)}{hoverNode.type === 'well' ? ' (well satellite)' : ''} · {fmt(nodeRate(hoverNode, u))}/min with your extractor
               {f.location && ` · ${fmt(dist(hoverNode, f.location), 0)} m from ${f.name}`}

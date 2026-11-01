@@ -8,6 +8,7 @@ import { itemName } from './data/game';
 import { exportState, newFactory, parseImport, useStore, type View } from './state';
 import { fmt } from './components/ui';
 import { SyncStatus } from './components/SyncStatus';
+import { WorldMap } from './components/WorldMap';
 import { useNewGameFactories } from './components/GameFactoriesCard';
 
 const TABS: { id: View; label: string }[] = [
@@ -57,6 +58,9 @@ export default function App() {
           ⚙ Progress <span className="muted">Tier {state.progress.tier} · {state.progress.mam.length} MAM · {state.progress.alts.length} alts</span>
         </button>
         <SyncStatus />
+        <button className={`nav ${state.view === 'world' ? 'on' : ''}`} onClick={() => dispatch({ type: 'showOnMap', focus: null })}>
+          🗺 World map <span className="muted">All factories{state.game ? ' · planned and in game' : ''}</span>
+        </button>
         <div className="side-head">
           <span>Factories</span>
           <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>
@@ -69,7 +73,7 @@ export default function App() {
           {state.factories.map((f) => {
             const p = plans[f.id];
             return (
-              <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
+              <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' && state.view !== 'world' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
                 <div className="fi-name">{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
                 <div className="muted">
                   {p?.status === 'ok' ? `${fmt(p.rate)}/min ` : ''}{itemName(f.target)}
@@ -86,7 +90,9 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
-        {state.view === 'progress' || !active ? (
+        {state.view === 'world' ? (
+          <WorldMap />
+        ) : state.view === 'progress' || !active ? (
           state.view === 'progress' ? <ProgressPanel /> : <Welcome />
         ) : (
           <>

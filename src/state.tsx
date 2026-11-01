@@ -5,7 +5,10 @@ import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
 import { matchFound } from './engine/gameFactories';
 
-export type View = 'progress' | 'setup' | 'results' | 'map' | 'schematic';
+export type View = 'progress' | 'world' | 'setup' | 'results' | 'map' | 'schematic';
+
+/** Something to centre the world map on. */
+export type MapFocus = { kind: 'found' | 'factory'; id: string } | null;
 
 interface State {
   progress: Progress;
@@ -16,6 +19,9 @@ interface State {
   game: GameSync | null;
   /** Save-sync settings: which game session to follow, and whether to sync on its own. */
   sync: { session: string | null; auto: boolean };
+  /** Names given to factories found in the save before they are added. */
+  foundNames: Record<string, string>;
+  mapFocus: MapFocus;
 }
 
 type Action =
@@ -29,7 +35,9 @@ type Action =
   | { type: 'gameSync'; progress: Progress; game: GameSync }
   | { type: 'syncPrefs'; patch: Partial<State['sync']> }
   | { type: 'forgetGame' }
-  | { type: 'addMany'; factories: Factory[] };
+  | { type: 'addMany'; factories: Factory[] }
+  | { type: 'renameFound'; key: string; name: string }
+  | { type: 'showOnMap'; focus: MapFocus };
 
 const KEY = 'ficsit-planner-v1';
 
@@ -50,7 +58,7 @@ function reducer(s: State, a: Action): State {
       };
     }
     case 'select':
-      return { ...s, activeId: a.id, view: a.view ?? (s.view === 'progress' ? 'setup' : s.view) };
+      return { ...s, activeId: a.id, view: a.view ?? (s.view === 'progress' || s.view === 'world' ? 'setup' : s.view) };
     case 'view':
       return { ...s, view: a.view };
     case 'load':
@@ -67,6 +75,10 @@ function reducer(s: State, a: Action): State {
     }
     case 'addMany':
       return { ...s, factories: [...s.factories, ...a.factories] };
+    case 'renameFound':
+      return { ...s, foundNames: { ...s.foundNames, [a.key]: a.name } };
+    case 'showOnMap':
+      return { ...s, view: 'world', mapFocus: a.focus };
     case 'syncPrefs':
       return { ...s, sync: { ...s.sync, ...a.patch } };
     case 'forgetGame':
@@ -106,12 +118,12 @@ function load(): State {
       s.progress = { ...defaultProgress, ...s.progress };
       s.factories = s.factories.map((f) => ({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }));
       if (s.game && !s.game.factories) s.game.factories = [];
-      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, sync: { ...defaultSync, ...s.sync } };
+      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, sync: { ...defaultSync, ...s.sync } };
     }
   } catch {
     /* ignore broken storage */
   }
-  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync };
+  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync, foundNames: {}, mapFocus: null };
 }
 
 interface Ctx {
