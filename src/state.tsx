@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNo
 import { buildPlan, type Plan } from './engine/plan';
 import { defaultProgress, type Progress } from './engine/progression';
 import { defaultSchematic, type Factory } from './engine/types';
+import type { GameSync } from './engine/saveSync';
 
 export type View = 'progress' | 'setup' | 'results' | 'map' | 'schematic';
 
@@ -10,6 +11,10 @@ interface State {
   factories: Factory[];
   activeId: string | null;
   view: View;
+  /** Last save synced from the game, if any. */
+  game: GameSync | null;
+  /** Save-sync settings: which game session to follow, and whether to sync on its own. */
+  sync: { session: string | null; auto: boolean };
 }
 
 type Action =
@@ -19,7 +24,10 @@ type Action =
   | { type: 'remove'; id: string }
   | { type: 'select'; id: string | null; view?: View }
   | { type: 'view'; view: View }
-  | { type: 'load'; state: State };
+  | { type: 'load'; state: State }
+  | { type: 'gameSync'; progress: Progress; game: GameSync }
+  | { type: 'syncPrefs'; patch: Partial<State['sync']> }
+  | { type: 'forgetGame' };
 
 const KEY = 'ficsit-planner-v1';
 
@@ -45,6 +53,12 @@ function reducer(s: State, a: Action): State {
       return { ...s, view: a.view };
     case 'load':
       return a.state;
+    case 'gameSync':
+      return { ...s, progress: a.progress, game: a.game };
+    case 'syncPrefs':
+      return { ...s, sync: { ...s.sync, ...a.patch } };
+    case 'forgetGame':
+      return { ...s, game: null };
   }
 }
 
@@ -69,6 +83,8 @@ export function newFactory(n: number): Factory {
   };
 }
 
+const defaultSync: State['sync'] = { session: null, auto: true };
+
 function load(): State {
   try {
     const raw = localStorage.getItem(KEY);
@@ -77,12 +93,12 @@ function load(): State {
       // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
       s.factories = s.factories.map((f) => ({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }));
-      return { ...s, view: s.view ?? 'setup' };
+      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, sync: { ...defaultSync, ...s.sync } };
     }
   } catch {
     /* ignore broken storage */
   }
-  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress' };
+  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync };
 }
 
 interface Ctx {

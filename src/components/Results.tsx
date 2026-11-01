@@ -14,7 +14,7 @@ export function Results({ f }: { f: Factory }) {
   const { state, dispatch, plans } = useStore();
   const plan = plans[f.id];
   const deferred = useDeferredValue(plan);
-  const tips = useMemo(() => suggestions(f, deferred, state.progress, state.factories, plans), [f, deferred, state.progress, state.factories, plans]);
+  const tips = useMemo(() => suggestions(f, deferred, state.progress, state.factories, plans, state.game?.occupied), [f, deferred, state.progress, state.factories, plans, state.game]);
   const machineCount = plan.groups.reduce((a, g) => a + g.count, 0);
 
   if (plan.status !== 'ok') {

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { itemName as shortName, recipes } from '../data/game';
 import { altSchematics, computeUnlocks, mamResearch, mamTrees, milestones, milestonesUpTo } from '../engine/progression';
 import { useStore } from '../state';
+import { SaveSyncCard } from './SaveSyncCard';
 import { NumberInput } from './ui';
 
 const TIER_NAMES = ['Onboarding', 'Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Tier 5', 'Tier 6', 'Tier 7', 'Tier 8', 'Tier 9'];
@@ -28,6 +29,8 @@ export function ProgressPanel() {
     <div className="content">
       <h1>Progress</h1>
       <p className="muted">The planner only uses machines, belts and recipes you have unlocked. Currently: {u.recipes.size} production recipes, {[...u.buildings].length} buildables{u.overclock ? ', overclocking' : ''}{u.amplify ? ', somersloop amplification' : ''}.</p>
+
+      <SaveSyncCard />
 
       <section className="card">
         <h2>Current tier</h2>

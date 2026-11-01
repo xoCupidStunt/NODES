@@ -175,3 +175,26 @@ input[type='checkbox'] { accent-color: var(--accent); }
   .sch-canvas { max-height: none; overflow: visible; border: 0; }
   .schematic-layout { display: block; }
 }
+
+/* Save sync */
+.sync-card h2 { margin: 0; }
+.sync-card > * + * { margin-top: 10px; }
+.sync-card code { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+.sync-dot { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.sync-dot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.sync-dot.live { color: var(--ok); }
+.sync-dot.live::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.sync-progress .bar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.sync-progress .bar div { height: 100%; background: var(--accent); transition: width 0.2s; }
+.sync-summary { border-left: 3px solid var(--accent); padding: 4px 10px; }
+.sync-file { border-top: 1px solid var(--line); padding-top: 10px; }
+.sync-status { margin: -6px 12px 10px; padding: 3px 8px; font-size: 11px; color: var(--muted); background: transparent; border-color: transparent; text-align: left; display: flex; align-items: center; gap: 6px; }
+.sync-led { width: 7px; height: 7px; border-radius: 50%; background: #555c66; flex: none; }
+.sync-status.live .sync-led { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+.sync-status.busy .sync-led { background: var(--accent); }
+.sync-status.attention { color: var(--warn); }
+.sync-status.attention .sync-led { background: var(--warn); }
+.drop-overlay { position: fixed; inset: 0; z-index: 100; background: #000b; display: grid; place-items: center; pointer-events: none; }
+.drop-overlay div { border: 2px dashed var(--accent); border-radius: 14px; padding: 40px 60px; font-size: 18px; background: var(--panel); }
+.node-ingame { pointer-events: none; }
+.ring.ingame { border-color: #38bdf8; border-radius: 2px; }

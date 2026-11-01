@@ -7,6 +7,7 @@ import { Setup } from './components/Setup';
 import { itemName } from './data/game';
 import { exportState, newFactory, parseImport, useStore, type View } from './state';
 import { fmt } from './components/ui';
+import { SyncStatus } from './components/SyncStatus';
 
 const TABS: { id: View; label: string }[] = [
   { id: 'setup', label: '1 · Setup' },
@@ -49,6 +50,7 @@ export default function App() {
         <button className={`nav ${state.view === 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'view', view: 'progress' })}>
           ⚙ Progress <span className="muted">Tier {state.progress.tier} · {state.progress.mam.length} MAM · {state.progress.alts.length} alts</span>
         </button>
+        <SyncStatus />
         <div className="side-head">
           <span>Factories</span>
           <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>

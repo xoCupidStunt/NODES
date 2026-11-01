@@ -15,6 +15,7 @@ Then open http://localhost:5173. Everything you enter is saved in your browser; 
 ## Features
 
 - **Progress** — pick your tier (ticks milestones), then adjust milestones, MAM research, hard-drive alternates, power shards and somersloops. Only unlocked machines, belts, miners and recipes are used.
+- **Game sync** — on the Progress page, connect your save folder (`%LOCALAPPDATA%FactoryGameSavedSaveGames`) once. N.O.D.E.S reads your newest save whenever the game saves and fills in tier, milestones, MAM research, alternates, power shards and somersloops. Nodes that already have a miner in your game are marked on the map and skipped by *Suggest placement*. Saves are read in the browser; nothing is uploaded. Folder sync needs Chrome or Edge; other browsers can drag a `.sav` file onto the page.
 - **Setup** — product, target rate or "as much as possible", and the build goal: maximum output, power efficiency, or minimal area. Switch off recipes you don't want, add extra supply, import parts from other factories.
 - **Map & placement** — all 608 resource nodes. *Suggest placement* finds the spot with the shortest belts to enough free nodes (and to factories you import from) and claims them; or place manually and claim nodes by clicking. Highlights the nearest free nodes and factories with parts to spare. You can load your own map image as a background.
 - **Results** — machines per recipe, clock speeds (equal or "N at 100% + 1 odd"), shards, power, extraction setup per node, a layout (flow) diagram with belt/pipe tiers, and optimisation suggestions (bottlenecks, alternates worth hunting, belts, byproducts, somersloops…).
@@ -29,6 +30,8 @@ npm run extract -- "D:/SteamLibrary/steamapps/common/Satisfactory"
 ```
 
 Resource node positions come from [satisfactory_node_heatmap](https://github.com/Hirashi3630/satisfactory_node_heatmap) (MIT), stored in `scripts/source/nodes_vanilla.json`.
+
+Save files are read with [satisfactory-file-parser](https://github.com/etothepii4/satisfactory-file-parser) (MIT). If a game update changes the save format, update that package.
 
 ## Tests
 

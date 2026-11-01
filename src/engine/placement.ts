@@ -18,8 +18,9 @@ export function rawDemand(f: Factory, progress: Progress, current?: Plan): Recor
   return d;
 }
 
-export function claimedElsewhere(factories: Factory[], selfId: string) {
-  const s = new Set<string>();
+/** Nodes this factory should not take: claimed by other factories, plus any already mined in the game. */
+export function claimedElsewhere(factories: Factory[], selfId: string, inGame: Iterable<string> = []) {
+  const s = new Set<string>(inGame);
   for (const f of factories) if (f.id !== selfId) f.nodes.forEach((n) => s.add(n));
   return s;
 }
@@ -69,10 +70,10 @@ export interface Suggestion {
  * Best spot = smallest belt-distance per item moved. Imports from other factories pull the spot towards them.
  * Coarse grid scan, then a finer scan around the winner.
  */
-export function suggestLocation(f: Factory, factories: Factory[], progress: Progress, current?: Plan): Suggestion | null {
+export function suggestLocation(f: Factory, factories: Factory[], progress: Progress, current?: Plan, inGame: Iterable<string> = []): Suggestion | null {
   const u = computeUnlocks(progress);
   const demand = rawDemand(f, progress, current);
-  const taken = claimedElsewhere(factories, f.id);
+  const taken = claimedElsewhere(factories, f.id, inGame);
   const pulls = f.imports
     .map((i) => ({ at: factories.find((x) => x.id === i.factoryId)?.location, rate: i.rate }))
     .filter((p): p is { at: { x: number; y: number }; rate: number } => !!p.at);

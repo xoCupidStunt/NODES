@@ -44,6 +44,9 @@ export function MapView({ f }: { f: Factory }) {
   const demand = useMemo(() => rawDemand(f, state.progress, plan), [f, state.progress, plan]);
   const taken = useMemo(() => claimedElsewhere(state.factories, f.id), [state.factories, f.id]);
   const mine = useMemo(() => new Set(f.nodes), [f.nodes]);
+  // Nodes with a miner already on them in the synced save: skipped by suggestions, still claimable by hand.
+  const inGame = useMemo(() => new Set(state.game?.occupied ?? []), [state.game]);
+  const avoid = useMemo(() => new Set([...taken, ...inGame]), [taken, inGame]);
   const ownerOf = useMemo(() => {
     const m: Record<string, Factory> = {};
     for (const o of state.factories) for (const n of o.nodes) m[n] = o;
@@ -57,9 +60,9 @@ export function MapView({ f }: { f: Factory }) {
   const nearest = useMemo(() => {
     const s = new Map<string, number>();
     if (!f.location) return s;
-    for (const item of Object.keys(demand)) for (const { node, d } of nearestNodes(item, f.location, new Set([...taken, ...mine]), 3)) s.set(node.id, d);
+    for (const item of Object.keys(demand)) for (const { node, d } of nearestNodes(item, f.location, new Set([...avoid, ...mine]), 3)) s.set(node.id, d);
     return s;
-  }, [f.location, demand, taken, mine]);
+  }, [f.location, demand, avoid, mine]);
 
   const chainItems = useMemo(() => {
     const s = new Set<string>(Object.keys(demand));
@@ -123,7 +126,7 @@ export function MapView({ f }: { f: Factory }) {
   const suggest = () => {
     setBusy(true);
     setTimeout(() => {
-      const s = suggestLocation(f, state.factories, state.progress, plan);
+      const s = suggestLocation(f, state.factories, state.progress, plan, inGame);
       setBusy(false);
       if (!s) return alert('Nothing to place for — this factory needs no mined resources or imports.');
       update({ location: s.location, nodes: s.nodes, placement: 'suggested' });
@@ -133,7 +136,7 @@ export function MapView({ f }: { f: Factory }) {
   };
   const autoClaim = () => {
     if (!f.location) return;
-    const p = pickNodes(demand, f.location, taken, u);
+    const p = pickNodes(demand, f.location, avoid, u);
     update({ nodes: [...new Set([...f.nodes.filter((id) => !demand[nodeById[id]?.item] ), ...p.picked.map((n) => n.id)])] });
   };
 
@@ -211,6 +214,7 @@ export function MapView({ f }: { f: Factory }) {
             <div><svg width="14" height="14"><circle cx="7" cy="7" r="4" fill="#aaa" /></svg> impure · <svg width="14" height="14"><circle cx="7" cy="7" r="5.5" fill="#aaa" /></svg> normal · <svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="#aaa" /></svg> pure</div>
             <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" transform="rotate(45 7 7)" fill="#aaa" /></svg> resource well satellite</div>
             <div><span className="ring mine" /> claimed here · <span className="ring near" /> nearest free · <span className="ring other" /> claimed by another factory</div>
+            {state.game && <div><span className="ring ingame" /> already mined in your game ({inGame.size} nodes, from “{state.game.saveName}”)</div>}
           </div>
         </section>
 
@@ -259,11 +263,13 @@ export function MapView({ f }: { f: Factory }) {
             const r = nodeR * PURITY_R[n.purity];
             const isMine = mine.has(n.id);
             const isTaken = taken.has(n.id);
+            const isInGame = inGame.has(n.id);
             const near = nearest.has(n.id);
             const fill = itemColor(n.item);
             return (
-              <g key={n.id} className="node" opacity={isTaken ? 0.35 : 1} onPointerUp={(e) => { if (!drag.current?.moved && !placing) { e.stopPropagation(); drag.current = null; toggleNode(n); } }} onPointerEnter={() => setHoverNode(n)} onPointerLeave={() => setHoverNode(null)}>
+              <g key={n.id} className="node" opacity={isTaken || (isInGame && !isMine) ? 0.4 : 1} onPointerUp={(e) => { if (!drag.current?.moved && !placing) { e.stopPropagation(); drag.current = null; toggleNode(n); } }} onPointerEnter={() => setHoverNode(n)} onPointerLeave={() => setHoverNode(null)}>
                 {(isMine || near || isTaken) && <circle cx={n.x} cy={n.y} r={r + 3 * pxToWorld} fill="none" stroke={isMine ? '#fff' : near ? '#ffd23f' : '#888'} strokeWidth={2 * pxToWorld} strokeDasharray={isTaken ? `${2 * pxToWorld}` : undefined} />}
+                {isInGame && <rect className="node-ingame" x={n.x - r - 5.5 * pxToWorld} y={n.y - r - 5.5 * pxToWorld} width={2 * r + 11 * pxToWorld} height={2 * r + 11 * pxToWorld} fill="none" stroke="#38bdf8" strokeWidth={1.6 * pxToWorld} />}
                 {n.type === 'well'
                   ? <rect x={n.x - r * 0.8} y={n.y - r * 0.8} width={r * 1.6} height={r * 1.6} transform={`rotate(45 ${n.x} ${n.y})`} fill={fill} stroke="#000" strokeWidth={0.6 * pxToWorld} />
                   : <circle cx={n.x} cy={n.y} r={r} fill={fill} stroke="#000" strokeWidth={0.6 * pxToWorld} />}
@@ -290,6 +296,7 @@ export function MapView({ f }: { f: Factory }) {
               <b>{hoverNode.purity}</b> {itemName(hoverNode.item)}{hoverNode.type === 'well' ? ' (well satellite)' : ''} · {fmt(nodeRate(hoverNode, u))}/min with your extractor
               {f.location && ` · ${fmt(dist(hoverNode, f.location), 0)} m from ${f.name}`}
               {ownerOf[hoverNode.id] && ` · claimed by ${ownerOf[hoverNode.id].name}`}
+              {inGame.has(hoverNode.id) && ' · already mined in your game'}
             </span>
           ) : hover ? (
             <span>x {fmt(hover.x / 100, 0)} m, y {fmt(hover.y / 100, 0)} m · scroll to zoom, drag to pan</span>

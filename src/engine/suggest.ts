@@ -16,7 +16,7 @@ export interface Tip {
 const fmt = (v: number, d = 1) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(d));
 const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
-export function suggestions(f: Factory, plan: Plan, progress: Progress, factories: Factory[], plans: Record<string, Plan>): Tip[] {
+export function suggestions(f: Factory, plan: Plan, progress: Progress, factories: Factory[], plans: Record<string, Plan>, inGame: string[] = []): Tip[] {
   const tips: Tip[] = [];
   if (plan.status !== 'ok') return tips;
   const u = plan.unlocks;
@@ -25,7 +25,7 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
 
   // 1. Bottleneck resources (max mode) and the nearest free node that would lift them.
   if (plan.maxRate !== null && f.mode === 'max') {
-    const taken = claimedElsewhere(factories, f.id);
+    const taken = claimedElsewhere(factories, f.id, inGame);
     f.nodes.forEach((n) => taken.add(n));
     for (const [item, cap] of Object.entries(plan.supply)) {
       const used = plan.solve.inputs[item] ?? 0;
