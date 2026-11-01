@@ -1,4 +1,6 @@
-# FICSIT Factory Planner
+# N.O.D.E.S
+
+**Node Optimization & Deployment Efficiency System**
 
 A local web app for planning Satisfactory (1.x) factories: what to build, how many, clock settings, where to put it, and a to-scale build schematic.
 

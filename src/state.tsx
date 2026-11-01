@@ -123,6 +123,6 @@ export function exportState(s: State) {
 }
 export function parseImport(text: string): Pick<State, 'progress' | 'factories'> {
   const j = JSON.parse(text);
-  if (!j || !Array.isArray(j.factories) || !j.progress) throw new Error('Not a planner export file');
+  if (!j || !Array.isArray(j.factories) || !j.progress) throw new Error('Not a N.O.D.E.S export file');
   return { progress: { ...defaultProgress, ...j.progress }, factories: j.factories };
 }

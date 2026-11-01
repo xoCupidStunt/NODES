@@ -23,7 +23,7 @@ export default function App() {
     const blob = new Blob([exportState(state)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'ficsit-planner.json';
+    a.download = 'nodes-export.json';
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -40,10 +40,10 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <span className="logo">F</span>
+          <span className="logo">N</span>
           <div>
-            <div className="brand-title">FICSIT Planner</div>
-            <div className="brand-sub">Factory design &amp; logistics</div>
+            <div className="brand-title">N.O.D.E.S</div>
+            <div className="brand-sub">Node Optimization &amp; Deployment Efficiency System</div>
           </div>
         </div>
         <button className={`nav ${state.view === 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'view', view: 'progress' })}>
@@ -104,7 +104,8 @@ function Welcome() {
   const { state, dispatch } = useStore();
   return (
     <div className="welcome">
-      <h1>Plan a factory</h1>
+      <h1>Welcome to N.O.D.E.S</h1>
+      <p className="muted">Node Optimization &amp; Deployment Efficiency System — plan a Satisfactory factory from node to build.</p>
       <ol>
         <li>Set your <b>Progress</b> — tier, MAM research and hard-drive alternates — so only buildings and recipes you have are used.</li>
         <li>Create a factory, pick the product and how to optimise it.</li>
