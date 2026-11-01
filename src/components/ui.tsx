@@ -10,7 +10,7 @@ export const mw = (v: number) => (Math.abs(v) >= 1000 ? `${fmt(v / 1000, 2)} GW`
 /** "20/min", "45 m³/min" or "1,500 MW" depending on the item. */
 export const rateText = (item: string, v: number) => (isPower(item) ? mw(v) : `${fmt(v)}${isFluid(item) ? ' m³' : ''}/min`);
 /** "20 Iron Plate" or "1,500 MW power". */
-export const amountName = (item: string, v: number) => (isPower(item) ? `${mw(v)} power` : `${fmt(v)} ${items[item]?.name ?? item}`);
+export const amountName = (item: string, v: number) => (isPower(item) ? `${mw(v)} power` : `${fmt(v)}${isFluid(item) ? ' m³' : ''} ${items[item]?.name ?? item}`);
 
 export function Swatch({ item }: { item: string }) {
   return <span className="swatch" style={{ background: itemColor(item) }} aria-hidden />;

@@ -289,3 +289,6 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .sch-disclaimer { background: #3a3218; border: 1px solid #6b5a1f; color: var(--warn); padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
 .sch-disclaimer b { color: var(--text); }
 @media print { .sch-disclaimer { color: #000; background: none; border-color: #999; } }
+.make-surplus { opacity: 0.75; font-style: italic; }
+.surplus-tag { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--warn); border: 1px solid #6b5a1f; border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+.surplus-head { margin-top: 12px; }

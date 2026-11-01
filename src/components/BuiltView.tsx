@@ -2,6 +2,8 @@ import { useDeferredValue, useMemo } from 'react';
 import { isPower, itemName, MACHINE_COLORS, machines, perMinute, POWER, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { buildPlan, clockPower, nodeById, nodeRate } from '../engine/plan';
 import { recipePower } from '../engine/solver';
+import { surplusItems } from '../engine/gameFactories';
+import { SURPLUS_HELP } from './GameFactoriesCard';
 import { suggestions, type Tip } from '../engine/suggest';
 import type { BuiltGroup, Factory } from '../engine/types';
 import { useStore } from '../state';
@@ -37,6 +39,9 @@ export function BuiltView({ f }: { f: Factory }) {
   const rows = useMemo(() => g.groups.map((x) => ({ g: x, ...groupRates(x) })), [g]);
   const builtOut = g.outputs.find(([i]) => i === f.target)?.[1] ?? 0;
   const powerMade = g.outputs.find(([i]) => i === POWER)?.[1] ?? 0;
+  const extra = useMemo(() => surplusItems(g), [g]);
+  const products = g.outputs.filter(([i]) => !extra.has(i) || i === f.target);
+  const surplus = g.outputs.filter(([i]) => extra.has(i) && i !== f.target);
   const machinesBuilt = g.groups.reduce((a, x) => a + x.count, 0);
   const avgClock = machinesBuilt ? rows.reduce((a, x) => a + x.speed, 0) / machinesBuilt * 100 : 0;
   const slow = rows.filter((x) => x.avgClock < 99.5);
@@ -91,11 +96,31 @@ export function BuiltView({ f }: { f: Factory }) {
         });
       }
     }
+    // Surplus: say how much is over-made and how to use it or make less.
+    for (const [item, left] of surplus) {
+      const makers = rows.filter((x) => x.outputs.some(([i]) => i === item));
+      const made = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
+      const used = made - left;
+      const pct = made > 0 ? (used / made) * 100 : 0;
+      const gen = Object.values(recipes).find((r) => r.generator && !r.noPlan && r.in[0]?.[0] === item);
+      let idea = '';
+      if (gen) {
+        const per = gen.in[0][1];
+        const mwEach = gen.out.find(([i]) => i === POWER)?.[1] ?? 0;
+        const n = Math.ceil(left / per - 1e-9);
+        idea = ` Or burn it: ${n} more ${machines[gen.machine]?.name ?? 'generator'}${n > 1 ? 's' : ''}${n * per > left + 1e-6 ? ` at ${fmt((left / per / n) * 100, 1)}%` : ''} would turn it into about ${mw((left / per) * mwEach)}.`;
+      }
+      t.push({
+        kind: 'byproduct', score: 55,
+        title: `${rateText(item, left)} ${itemName(item)} is surplus`,
+        detail: `The ${makers.map((x) => `${x.g.count} × ${x.r.name}`).join(' and ')} can make ${rateText(item, made)}, but this factory only uses ${rateText(item, used)}. Unless the extra leaves by another route, it backs up and those machines idle part of the time. Underclock them to about ${fmt(pct * (makers[0]?.avgClock ?? 100) / 100, 1)}% to match.${idea}`,
+      });
+    }
     const fromSuggest = deferredMax.status === 'ok'
       ? suggestions(fMax, deferredMax, state.progress, state.factories, plans, state.game?.occupied).filter((x) => x.kind !== 'clock' || x.title.includes('shard') || x.title.includes('Research'))
       : [];
     return [...t, ...fromSuggest].sort((a, b) => b.score - a.score);
-  }, [possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
+  }, [surplus, rows, possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
 
   const rename = () => {
     const name = prompt('Factory name', f.name);
@@ -123,7 +148,7 @@ export function BuiltView({ f }: { f: Factory }) {
 
         <div className="stats">
           <Stat label="Main product" value={rateText(f.target, builtOut)} sub={itemName(f.target)} />
-          <Stat label="Products" value={String(g.outputs.length)} sub={g.outputs.length > 1 ? 'made here' : 'made here'} />
+          <Stat label="Products" value={String(products.length)} sub={surplus.length ? `+ ${surplus.length} surplus` : 'made here'} />
           <Stat label="Machines" value={String(machinesBuilt)} sub={`${g.groups.length} recipes`} />
           <Stat label="Power used" value={mw(g.power)} sub="production machines" />
           {powerMade > 0 && <Stat label="Power made" value={mw(powerMade)} sub={`net ${powerMade - g.power >= 0 ? '+' : ''}${mw(powerMade - g.power)} to the grid`} />}
@@ -135,7 +160,7 @@ export function BuiltView({ f }: { f: Factory }) {
             <h2>Products</h2>
             <table className="table compact">
               <tbody>
-                {g.outputs.map(([i, v]) => (
+                {products.map(([i, v]) => (
                   <tr key={i} className={i === f.target ? 'main-row' : ''}>
                     <td><ItemTag item={i} rate={v} /></td>
                     <td className="muted small-text">{i === f.target ? 'main product' : ''}</td>
@@ -143,6 +168,22 @@ export function BuiltView({ f }: { f: Factory }) {
                 ))}
               </tbody>
             </table>
+            {surplus.length > 0 && (
+              <>
+                <h3 className="surplus-head">Surplus <span className="surplus-tag">not a product</span></h3>
+                <table className="table compact">
+                  <tbody>
+                    {surplus.map(([i, v]) => (
+                      <tr key={i} className="make-surplus" title={SURPLUS_HELP}>
+                        <td><ItemTag item={i} rate={v} /></td>
+                        <td className="muted small-text">made more than used here</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="muted small-text">{SURPLUS_HELP}</p>
+              </>
+            )}
           </section>
           <section className="card">
             <h2>Uses</h2>

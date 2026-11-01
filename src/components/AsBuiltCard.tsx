@@ -3,12 +3,14 @@ import type { Plan } from '../engine/plan';
 import type { Factory } from '../engine/types';
 import { fmt, ItemTag, mw, rateText } from './ui';
 import { ago } from './SaveSyncCard';
+import { surplusItems } from '../engine/gameFactories';
 
 /** Side-by-side: what's built in the game vs. the planner's plan for the same output. */
 export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
   const g = f.game;
   if (!g) return null;
   const builtMachines = g.groups.reduce((a, x) => a + x.count, 0);
+  const extra = surplusItems(g);
   const planMachines = plan.groups.reduce((a, x) => a + x.count, 0);
   const builtOut = g.outputs.find(([i]) => i === f.target)?.[1] ?? 0;
 
@@ -53,7 +55,7 @@ export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
       </table>
       <div className="row gap wrap small-text">
         <span className="muted">In game it also gives:</span>
-        {g.outputs.filter(([i]) => i !== f.target).map(([i, v]) => <ItemTag key={i} item={i} rate={v} />)}
+        {g.outputs.filter(([i]) => i !== f.target).map(([i, v]) => <span key={i} className={extra.has(i) ? 'make-surplus' : ''}><ItemTag item={i} rate={v} />{extra.has(i) && <span className="surplus-tag">surplus</span>}</span>)}
         {g.outputs.length <= 1 && <span className="muted">nothing else</span>}
       </div>
       <p className="muted small-text">The plan is the planner’s best layout for the same output with your unlocks and build goal. Recipes only in the plan are highlighted — they’re worth a look. Change the goal or recipes on Setup to compare other options.</p>

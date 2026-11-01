@@ -148,7 +148,10 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
   // Main product: the most processed output (deepest in this factory's chain), then the most valuable.
   // Power is only the main product of a pure power plant.
   const depth = itemDepths(ms.map((m) => m.recipe));
-  outputs.sort((a, b) => Number(isPower(a[0])) - Number(isPower(b[0])) || (depth[b[0]] ?? 0) - (depth[a[0]] ?? 0) || b[1] * ((items[b[0]]?.sink ?? 0) || 1) - a[1] * ((items[a[0]]?.sink ?? 0) || 1));
+    // Surplus (an ingredient here that is over-made) comes last of all.
+  const extra = surplusItems({ groups: [...groups.values()].map(({ clockMap, ...x }) => ({ ...x, clocks: [...clockMap.entries()] })), outputs });
+  const rank = (i: string) => (extra.has(i) ? 2 : isPower(i) ? 1 : 0);
+  outputs.sort((a, b) => rank(a[0]) - rank(b[0]) || (depth[b[0]] ?? 0) - (depth[a[0]] ?? 0) || b[1] * ((items[b[0]]?.sink ?? 0) || 1) - a[1] * ((items[a[0]]?.sink ?? 0) || 1));
   const [target, rate] = outputs[0];
 
   const nodeIds = g.nodes;
@@ -301,13 +304,34 @@ export function combineBuilt(list: Omit<BuiltInfo, 'updatedAt'>[]): Omit<BuiltIn
   };
 }
 
-/** Fields for a new planner factory that mirrors a found one (every product it makes). */
+/**
+ * Items a built factory makes more of than it uses, although it uses them itself (e.g. fuel made by refineries
+ * and burnt by generators in the same factory). The extra either leaves by some other route or backs up.
+ */
+export function surplusItems(built: Pick<BuiltInfo, 'groups' | 'outputs'>): Set<string> {
+  const used = new Set<string>();
+  const made: Record<string, number> = {};
+  for (const g of built.groups) {
+    const r = recipes[g.recipe];
+    if (!r) continue;
+    const speed = g.clocks.reduce((a, [c, n]) => a + (c / 100) * n, 0);
+    for (const [i] of r.in) used.add(i);
+    for (const [i, a] of r.out) made[i] = (made[i] ?? 0) + perMinute(r, a) * speed;
+  }
+  // Used here, and only a small share of what's made is left: a leftover. A large share left means it's shipped out.
+  return new Set(built.outputs.filter(([i, left]) => used.has(i) && !isPower(i) && made[i] > 0 && left / made[i] <= SURPLUS_SHARE).map(([i]) => i));
+}
+/** At most this share of what's made may be left over for an item to count as surplus rather than a product. */
+export const SURPLUS_SHARE = 0.25;
+export const isSurplus = (built: Pick<BuiltInfo, 'groups' | 'outputs'>, item: string) => surplusItems(built).has(item);
+
+/** Fields for a new planner factory that mirrors a found one (its products, not its surplus). */
 export function factoryFromFound(ff: FoundFactory, name = ff.name): Partial<Factory> {
   return {
     name: name.trim() || ff.name,
     target: ff.target,
     rate: ff.rate,
-    also: ff.built.outputs.filter(([i]) => i !== ff.target).map(([item, rate]) => ({ item, rate: round(rate) })),
+    also: ff.built.outputs.filter(([i]) => i !== ff.target && !isSurplus(ff.built, i)).map(([item, rate]) => ({ item, rate: round(rate) })),
     mode: 'power',
     placement: 'manual',
     location: ff.location,

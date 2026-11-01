@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { factoryFromFound, matchFound, type FoundFactory } from '../engine/gameFactories';
+import { factoryFromFound, matchFound, surplusItems, type FoundFactory } from '../engine/gameFactories';
 import type { Factory } from '../engine/types';
 import { newFactory, useStore } from '../state';
 import { itemColor } from '../data/game';
@@ -152,14 +152,22 @@ export function useNewGameFactories() {
 
 /** Every product made at a found factory, main product first. */
 export function Makes({ ff }: { ff: FoundFactory }) {
+  const extra = surplusItems(ff.built);
+  const list = ff.built.outputs.slice().sort((a, b) => (a[0] === ff.target ? -1 : b[0] === ff.target ? 1 : b[1] - a[1]));
+  const products = list.filter(([i]) => !extra.has(i) || i === ff.target);
+  const surplus = list.filter(([i]) => extra.has(i) && i !== ff.target);
   return (
     <div className="makes">
-      {ff.built.outputs
-        .slice()
-        .sort((a, b) => (a[0] === ff.target ? -1 : b[0] === ff.target ? 1 : b[1] - a[1]))
-        .map(([i, v]) => (
-          <div key={i} className={i === ff.target ? 'make-main' : ''}><span className="swatch" style={{ background: itemColor(i) }} />{amountName(i, v)}</div>
-        ))}
+      {products.map(([i, v]) => (
+        <div key={i} className={i === ff.target ? 'make-main' : ''}><span className="swatch" style={{ background: itemColor(i) }} />{amountName(i, v)}</div>
+      ))}
+      {surplus.map(([i, v]) => (
+        <div key={i} className="make-surplus" title={SURPLUS_HELP}>
+          <span className="swatch" style={{ background: itemColor(i) }} />{amountName(i, v)} <span className="surplus-tag">surplus</span>
+        </div>
+      ))}
     </div>
   );
 }
+
+export const SURPLUS_HELP = 'Surplus: this factory uses this item itself and its machines can make a little more than it uses (up to a quarter extra). Unless the extra leaves by another route, it backs up and the machines making it idle part of the time.';
