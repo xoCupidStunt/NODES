@@ -36,7 +36,7 @@ export function SeparatePanel({ machineIds, onApply, onCancel, applyLabel }: {
         </div>
       )}
       <div className="row gap">
-        <button className="small primary" disabled={parts.length < 2} onClick={() => onApply(gap)}>{applyLabel(parts.length)}</button>
+        <button className="small primary" disabled={parts.length < 2} onClick={() => onApply(gap)}>{parts.length < 2 ? 'Separate' : applyLabel(parts.length)}</button>
         {onCancel && <button className="small ghost" onClick={onCancel}>Cancel</button>}
       </div>
     </div>

@@ -33,7 +33,7 @@ export function GameFactoriesCard() {
   const [splitting, setSplitting] = useState<string | null>(null);
   if (!state.game) return null;
 
-  const open = (id: string) => dispatch({ type: 'select', id, view: 'results' });
+  const open = (id: string) => dispatch({ type: 'select', id, view: 'built' });
   const pick = (key: string, on: boolean) => setPicked((p) => (on ? [...p, key] : p.filter((k) => k !== key)));
   const pickedNow = picked.filter((k) => found.some((f) => f.key === k && !byFound.has(k)));
   const combine = () => {

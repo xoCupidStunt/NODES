@@ -72,7 +72,7 @@ export function WorldMap() {
       <p className="muted">All your factories: the ones you’re planning here{state.game ? ' and the ones built in your game' : ''}. Click one for details.</p>
       <div className="map-layout world">
         <div className="map-side">
-          {selFound && <FoundDetails ff={selFound} linked={byFound.get(selFound.key) ?? null} onAdd={() => add([selFound])} onOpen={(id) => dispatch({ type: 'select', id, view: 'results' })} />}
+          {selFound && <FoundDetails ff={selFound} linked={byFound.get(selFound.key) ?? null} onAdd={() => add([selFound])} onOpen={(id) => dispatch({ type: 'select', id, view: 'built' })} />}
           {selFactory && <FactoryDetails f={selFactory} rate={plans[selFactory.id]?.status === 'ok' ? plans[selFactory.id].rate : null} />}
 
           <section className="card">
@@ -227,7 +227,7 @@ function FactoryDetails({ f, rate }: { f: Factory; rate: number | null }) {
         <div className="small-text muted">In game: {f.game.outputs.map(([i, v]) => `${fmt(v)} ${itemName(i)}`).join(', ')}</div>
       )}
       <div className="row gap wrap">
-        <button className="small" onClick={() => dispatch({ type: 'select', id: f.id, view: 'results' })}>Results</button>
+        <button className="small" onClick={() => dispatch({ type: 'select', id: f.id, view: f.game ? 'built' : 'results' })}>{f.game ? 'Overview' : 'Results'}</button>
         <button className="small ghost" onClick={() => dispatch({ type: 'select', id: f.id, view: 'map' })}>Placement map</button>
       </div>
     </section>

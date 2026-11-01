@@ -1,0 +1,263 @@
+import { useDeferredValue, useMemo } from 'react';
+import { itemName, MACHINE_COLORS, machines, perMinute, RAW_ITEMS, recipes } from '../data/game';
+import { buildPlan, clockPower, nodeById, nodeRate } from '../engine/plan';
+import { recipePower } from '../engine/solver';
+import { suggestions, type Tip } from '../engine/suggest';
+import type { BuiltGroup, Factory } from '../engine/types';
+import { useStore } from '../state';
+import { AsBuiltCard } from './AsBuiltCard';
+import { CombineSeparateCard } from './CombineSeparateCard';
+import { ago } from './SaveSyncCard';
+import { fmt, ItemTag, mw, Stat } from './ui';
+
+/** Totals for one recipe's machines at the clocks set in game. */
+function groupRates(g: BuiltGroup) {
+  const r = recipes[g.recipe];
+  const m = machines[r?.machine];
+  const speed = g.clocks.reduce((a, [c, n]) => a + (c / 100) * n, 0); // machine-equivalents at 100 %
+  const power = g.clocks.reduce((a, [c, n]) => a + clockPower(recipePower(r), m?.exp ?? 1.321929, c) * n, 0);
+  return {
+    r, m, speed, power,
+    avgClock: g.count ? (speed / g.count) * 100 : 0,
+    inputs: r.in.map(([i, a]) => [i, perMinute(r, a) * speed] as [string, number]),
+    outputs: r.out.map(([i, a]) => [i, perMinute(r, a) * speed] as [string, number]),
+  };
+}
+
+/** A factory that is already built in the game: what it makes, how well, and how to get more out of it. */
+export function BuiltView({ f }: { f: Factory }) {
+  const { state, dispatch, plans } = useStore();
+  const g = f.game!;
+  const best = plans[f.id];
+  // Most this factory could make from the nodes and outside supply it already has.
+  const fMax = useMemo<Factory>(() => ({ ...f, mode: 'max', rate: null }), [f]);
+  const maxPlan = useMemo(() => buildPlan(fMax, state.progress), [fMax, state.progress]);
+  const deferredMax = useDeferredValue(maxPlan);
+
+  const rows = useMemo(() => g.groups.map((x) => ({ g: x, ...groupRates(x) })), [g]);
+  const builtOut = g.outputs.find(([i]) => i === f.target)?.[1] ?? 0;
+  const machinesBuilt = g.groups.reduce((a, x) => a + x.count, 0);
+  const avgClock = machinesBuilt ? rows.reduce((a, x) => a + x.speed, 0) / machinesBuilt * 100 : 0;
+  const slow = rows.filter((x) => x.avgClock < 99.5);
+  const slowCount = slow.reduce((a, x) => a + x.g.count, 0);
+
+  // Raw resources: what the claimed nodes give vs. what the machines use.
+  const nodeSupply: Record<string, number> = {};
+  for (const id of f.nodes) {
+    const n = nodeById[id];
+    if (n) nodeSupply[n.item] = (nodeSupply[n.item] ?? 0) + nodeRate(n, best.unlocks);
+  }
+  const rawUse = g.inputs.filter(([i]) => RAW_ITEMS.includes(i));
+  const rawSupplied = Object.values(nodeSupply).reduce((a, b) => a + b, 0) + rawUse.reduce((a, [i]) => a + (f.extraSupply[i] ?? 0), 0);
+  const rawUsed = rawUse.reduce((a, [, v]) => a + v, 0);
+
+  const possible = deferredMax.status === 'ok' ? deferredMax.rate : null;
+  const outputPct = possible && possible > 0 ? Math.min(100, (builtOut / possible) * 100) : null;
+  const bestOk = best.status === 'ok' && best.rate > 0;
+  const powerPerItem = builtOut > 0 ? g.power / builtOut : 0;
+  const bestPowerPerItem = bestOk ? best.power.machines / best.rate : 0;
+  const bestMachines = bestOk ? best.groups.reduce((a, x) => a + x.count, 0) : 0;
+
+  const tips = useMemo<Tip[]>(() => {
+    const t: Tip[] = [];
+    if (possible !== null && possible > builtOut * 1.02) {
+      t.push({
+        kind: 'resource', score: 95,
+        title: `Up to ${fmt(possible)}/min of ${itemName(f.target)} with what it already gets (+${fmt(((possible - builtOut) / Math.max(builtOut, 1e-9)) * 100, 0)}%)`,
+        detail: `The planner's best layout for the same nodes and outside supply makes ${fmt(possible)}/min instead of ${fmt(builtOut)}/min. Open “Plan changes” → Results for the machines and clocks.`,
+      });
+    }
+    if (slowCount > 0) {
+      const gain = slow.map((x) => {
+        const main = x.outputs[0];
+        return main ? `${fmt(main[1] / (x.avgClock / 100) - main[1])} ${itemName(main[0])}` : '';
+      }).filter(Boolean).slice(0, 3).join(', ');
+      t.push({
+        kind: 'clock', score: 60,
+        title: `${slowCount} machine${slowCount > 1 ? 's run' : ' runs'} below 100%`,
+        detail: `${slow.map((x) => `${x.g.count} × ${x.r.name} at ${fmt(x.avgClock, 1)}%`).slice(0, 4).join(', ')}. At 100% they would make about ${gain} more per minute — if their inputs keep up.`,
+      });
+    }
+    if (bestOk) {
+      const builtRecipes = new Set(g.groups.map((x) => x.recipe));
+      const missing = best.groups.filter((x) => !builtRecipes.has(x.recipe.id) && x.recipe.alt);
+      if (missing.length) {
+        t.push({
+          kind: 'recipe', score: 50,
+          title: `You have ${missing.length === 1 ? 'an alternate recipe' : `${missing.length} alternate recipes`} this factory doesn’t use`,
+          detail: `${missing.map((x) => x.recipe.name).join(', ')} — the best plan for the same output uses ${bestMachines} machines and ${mw(best.power.machines)} instead of ${machinesBuilt} and ${mw(g.power)}.`,
+        });
+      }
+    }
+    const fromSuggest = deferredMax.status === 'ok'
+      ? suggestions(fMax, deferredMax, state.progress, state.factories, plans, state.game?.occupied).filter((x) => x.kind !== 'clock' || x.title.includes('shard') || x.title.includes('Research'))
+      : [];
+    return [...t, ...fromSuggest].sort((a, b) => b.score - a.score);
+  }, [possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
+
+  const rename = () => {
+    const name = prompt('Factory name', f.name);
+    if (name && name.trim()) dispatch({ type: 'update', id: f.id, patch: { name: name.trim() } });
+  };
+
+  return (
+    <div className="built">
+      <header className="top built-top">
+        <div className="built-title">
+          <h1>{f.name}</h1>
+          <button className="small ghost" onClick={rename} title="Rename">✎ Rename</button>
+          <span className="ingame-tag">built in game</span>
+          <span className="muted small-text">updated {ago(g.updatedAt)}</span>
+        </div>
+        <div className="row gap wrap">
+          <button className="primary" onClick={() => dispatch({ type: 'view', view: 'schematic' })}>Show schematic</button>
+          <button onClick={() => dispatch({ type: 'showOnMap', focus: { kind: 'factory', id: f.id } })}>Show on map</button>
+          <button className="ghost" onClick={() => dispatch({ type: 'view', view: 'setup' })}>Plan changes…</button>
+        </div>
+      </header>
+
+      <div className="content">
+        {g.missing && <p className="warn">These machines weren’t in the last synced save — the factory may have been torn down or rebuilt.</p>}
+
+        <div className="stats">
+          <Stat label="Main product" value={`${fmt(builtOut)} /min`} sub={itemName(f.target)} />
+          <Stat label="Products" value={String(g.outputs.length)} sub={g.outputs.length > 1 ? 'made here' : 'made here'} />
+          <Stat label="Machines" value={String(machinesBuilt)} sub={`${g.groups.length} recipes`} />
+          <Stat label="Power" value={mw(g.power)} sub="production machines" />
+          <Stat label="Average clock" value={`${fmt(avgClock, 1)}%`} sub={slowCount ? `${slowCount} below 100%` : 'all at 100% or more'} />
+        </div>
+
+        <div className="two-col">
+          <section className="card">
+            <h2>Products</h2>
+            <table className="table compact">
+              <tbody>
+                {g.outputs.map(([i, v]) => (
+                  <tr key={i} className={i === f.target ? 'main-row' : ''}>
+                    <td><ItemTag item={i} rate={v} /></td>
+                    <td className="muted small-text">{i === f.target ? 'main product' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+          <section className="card">
+            <h2>Uses</h2>
+            <table className="table compact">
+              <tbody>
+                {g.inputs.map(([i, v]) => (
+                  <tr key={i}>
+                    <td><ItemTag item={i} rate={v} /></td>
+                    <td className="muted small-text">
+                      {nodeSupply[i] ? `${f.nodes.filter((id) => nodeById[id]?.item === i).length} node${f.nodes.filter((id) => nodeById[id]?.item === i).length > 1 ? 's' : ''}` : ''}
+                      {nodeSupply[i] && f.extraSupply[i] ? ' + ' : ''}
+                      {f.extraSupply[i] ? 'from outside' : ''}
+                      {!nodeSupply[i] && !f.extraSupply[i] ? (RAW_ITEMS.includes(i) ? 'extractors' : 'made nearby') : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        </div>
+
+        <section className="card">
+          <h2>Machines</h2>
+          <div className="table-scroll">
+            <table className="table">
+              <thead><tr><th>Machine</th><th>Recipe</th><th className="num">Count</th><th>Clocks</th><th>In / min</th><th>Out / min</th><th className="num">Power</th></tr></thead>
+              <tbody>
+                {rows.map((x) => (
+                  <tr key={x.g.recipe}>
+                    <td><span className="mdot" style={{ background: MACHINE_COLORS[x.r.machine] ?? '#888' }} />{x.m?.name}</td>
+                    <td>{x.r.name}{x.r.alt && <span className="badge">alt</span>}</td>
+                    <td className="num"><b>{x.g.count}</b></td>
+                    <td className="small-text">
+                      {x.g.clocks.map(([c, n]) => `${n} × ${fmt(c, 1)}%`).join(', ')}
+                      {x.g.boosted > 0 && <div className="muted">{x.g.boosted} with somersloops</div>}
+                    </td>
+                    <td>{x.inputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
+                    <td>{x.outputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
+                    <td className="num">{mw(x.power)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Efficiency</h2>
+          <div className="eff">
+            <Meter
+              label="Output vs. what’s possible"
+              pct={outputPct}
+              value={possible === null ? 'no plan' : `${fmt(builtOut)} of ${fmt(possible)} /min`}
+              note="Main product now, vs. the most the planner can make from the same nodes and outside supply."
+            />
+            <Meter
+              label="Power per item"
+              pct={bestOk && powerPerItem > 0 ? Math.min(100, (bestPowerPerItem / powerPerItem) * 100) : null}
+              value={bestOk ? `${fmt(powerPerItem, 2)} MW vs. best ${fmt(bestPowerPerItem, 2)} MW` : '—'}
+              note="Machine power per item/min of the main product, vs. the best layout for the same output."
+            />
+            <Meter
+              label="Machines"
+              pct={bestOk && machinesBuilt ? Math.min(100, (bestMachines / machinesBuilt) * 100) : null}
+              value={bestOk ? `${machinesBuilt} built vs. ${bestMachines} in the best layout` : '—'}
+              note="Fewer machines for the same output means less to build and a smaller footprint."
+            />
+            <Meter
+              label="Clock use"
+              pct={Math.min(100, avgClock)}
+              value={`${fmt(avgClock, 1)}% average`}
+              note="How hard the machines are working. Below 100% leaves output on the table."
+            />
+            {rawSupplied > 0 && (
+              <Meter
+                label="Resource use"
+                pct={Math.min(100, (rawUsed / rawSupplied) * 100)}
+                value={`${fmt(rawUsed)} of ${fmt(rawSupplied)} /min raw resources`}
+                note="Raw resources the machines use, vs. what its nodes (with your best miners) and outside supply provide."
+              />
+            )}
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Get more out of it</h2>
+          {deferredMax !== maxPlan && <p className="muted">Updating…</p>}
+          {tips.length === 0 && <p className="muted">Nothing obvious to improve with what you have unlocked.</p>}
+          <div className="tips">
+            {tips.map((t, k) => (
+              <div key={k} className={`tip ${t.kind}`}>
+                <div className="tip-kind">{t.kind}</div>
+                <div><b>{t.title}</b><div className="muted">{t.detail}</div></div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {bestOk && (
+          <details className="card compare">
+            <summary><h2>Recipe by recipe vs. the best layout</h2></summary>
+            <AsBuiltCard f={f} plan={best} />
+          </details>
+        )}
+
+        <CombineSeparateCard f={f} />
+      </div>
+    </div>
+  );
+}
+
+function Meter({ label, pct, value, note }: { label: string; pct: number | null; value: string; note: string }) {
+  const tone = pct === null ? '' : pct >= 90 ? 'good' : pct >= 70 ? 'ok' : 'low';
+  return (
+    <div className="meter">
+      <div className="row between"><b>{label}</b><span className={`meter-pct ${tone}`}>{pct === null ? '—' : `${fmt(pct, 0)}%`}</span></div>
+      <div className="meter-bar"><div className={tone} style={{ width: `${pct ?? 0}%` }} /></div>
+      <div className="small-text muted">{value} · {note}</div>
+    </div>
+  );
+}

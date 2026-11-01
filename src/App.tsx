@@ -9,6 +9,7 @@ import { exportState, newFactory, parseImport, useStore, type View } from './sta
 import { fmt } from './components/ui';
 import { SyncStatus } from './components/SyncStatus';
 import { WorldMap } from './components/WorldMap';
+import { BuiltView } from './components/BuiltView';
 import { useNewGameFactories } from './components/GameFactoriesCard';
 
 const TABS: { id: View; label: string }[] = [
@@ -94,18 +95,33 @@ export default function App() {
           <WorldMap />
         ) : state.view === 'progress' || !active ? (
           state.view === 'progress' ? <ProgressPanel /> : <Welcome />
+        ) : active.game && state.view === 'built' ? (
+          <BuiltView f={active} />
         ) : (
           <>
             <header className="top">
-              <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
-              <nav className="tabs">
-                {TABS.map((t) => (
-                  <button key={t.id} className={state.view === t.id ? 'on' : ''} onClick={() => dispatch({ type: 'view', view: t.id })}>{t.label}</button>
-                ))}
-              </nav>
+              {active.game ? (
+                <div className="built-title">
+                  <button className="small ghost" onClick={() => dispatch({ type: 'view', view: 'built' })}>← Overview</button>
+                  <b className="title-static">{active.name}</b>
+                  <span className="ingame-tag">built in game</span>
+                </div>
+              ) : (
+                <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
+              )}
+              {active.game && state.view === 'schematic' ? (
+                <span className="muted small-text">Build schematic for the best layout of this factory</span>
+              ) : (
+                <nav className="tabs">
+                  {active.game && <span className="muted small-text">Planning changes:</span>}
+                  {TABS.map((t) => (
+                    <button key={t.id} className={state.view === t.id ? 'on' : ''} onClick={() => dispatch({ type: 'view', view: t.id })}>{t.label}</button>
+                  ))}
+                </nav>
+              )}
             </header>
             <div className="content">
-              {state.view === 'setup' && <Setup f={active} />}
+              {(state.view === 'setup' || state.view === 'built') && <Setup f={active} />}
               {state.view === 'map' && <MapView f={active} />}
               {state.view === 'results' && <Results f={active} />}
               {state.view === 'schematic' && <SchematicView f={active} />}

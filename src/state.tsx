@@ -6,7 +6,7 @@ import type { GameSync } from './engine/saveSync';
 import { noRules, type FoundFactory, type GroupRules } from './engine/gameFactories';
 import { combineFactories, combineFound, foundOf, refreshLinked, separateFactory, splitRules, undoFound } from './engine/grouping';
 
-export type View = 'progress' | 'world' | 'setup' | 'results' | 'map' | 'schematic';
+export type View = 'progress' | 'world' | 'built' | 'setup' | 'results' | 'map' | 'schematic';
 
 /** Something to centre the world map on. */
 export type MapFocus = { kind: 'found' | 'factory'; id: string } | null;
@@ -65,8 +65,12 @@ function reducer(s: State, a: Action): State {
         activeId: s.activeId === a.id ? factories[0]?.id ?? null : s.activeId,
       };
     }
-    case 'select':
-      return { ...s, activeId: a.id, view: a.view ?? (s.view === 'progress' || s.view === 'world' ? 'setup' : s.view) };
+    case 'select': {
+      // Factories built in the game open on their overview; planned ones on the planner steps.
+      const f = s.factories.find((x) => x.id === a.id);
+      const fallback = f?.game ? 'built' : s.view === 'progress' || s.view === 'world' || s.view === 'built' ? 'setup' : s.view;
+      return { ...s, activeId: a.id, view: a.view ?? fallback };
+    }
     case 'view':
       return { ...s, view: a.view };
     case 'load':
