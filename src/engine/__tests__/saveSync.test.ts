@@ -130,3 +130,17 @@ describe.skipIf(!realSave)('generators in a real save', () => {
     expect(power).toBeGreaterThan(0);
   }, 60000);
 });
+
+describe.skipIf(!realSave)('outside supply in a real save', () => {
+  it('never lists items a factory makes itself as coming from outside', async () => {
+    const g = await import('../grouping');
+    const { noRules, madeInside } = await import('../gameFactories');
+    const buf = readFileSync(realSave!);
+    const s = readSave(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), realSave!);
+    const found = g.foundOf({ game: gameSyncFromSave(s, null, 'file'), progress: progressFromSave(s), groupRules: noRules });
+    for (const ff of found) {
+      const made = madeInside(ff.built);
+      expect(Object.keys(ff.extraSupply).filter((i) => made.has(i))).toEqual([]);
+    }
+  }, 60000);
+});

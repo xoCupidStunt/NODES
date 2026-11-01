@@ -4,7 +4,7 @@ import { defaultProgress, type Progress } from './engine/progression';
 import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
 import { noRules, type FoundFactory, type GroupRules } from './engine/gameFactories';
-import { combineFactories, combineFound, foundOf, refreshLinked, separateFactory, splitRules, undoFound, withPowerProduct } from './engine/grouping';
+import { combineFactories, combineFound, foundOf, refreshLinked, separateFactory, splitRules, undoFound, withGameSupply, withPowerProduct } from './engine/grouping';
 
 export type View = 'progress' | 'world' | 'built' | 'setup' | 'results' | 'map' | 'schematic';
 
@@ -140,7 +140,7 @@ function load(): State {
       const s = JSON.parse(raw) as State;
       // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
-      s.factories = s.factories.map((f) => withPowerProduct({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }));
+      s.factories = s.factories.map((f) => withGameSupply(withPowerProduct({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } })));
       // Older saves stored found factories instead of the layout; resync to fill it in.
       if (s.game && !s.game.layout) s.game.layout = { machines: [], extractors: [], labels: [] };
       return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, groupRules: s.groupRules ?? noRules, sync: { ...defaultSync, ...s.sync } };

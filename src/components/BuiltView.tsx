@@ -2,7 +2,7 @@ import { useDeferredValue, useMemo } from 'react';
 import { extractors, isPower, itemColor, itemName, MACHINE_COLORS, machines, perMinute, POWER, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { buildPlan, clockPower, nodeById, nodeRate } from '../engine/plan';
 import { recipePower } from '../engine/solver';
-import { surplusItems } from '../engine/gameFactories';
+import { madeInside, shortfallsOf, surplusItems } from '../engine/gameFactories';
 import { SURPLUS_HELP } from './GameFactoriesCard';
 import { suggestions, type Tip } from '../engine/suggest';
 import type { BuiltGroup, Factory } from '../engine/types';
@@ -63,6 +63,8 @@ export function BuiltView({ f }: { f: Factory }) {
   const ownCount: Record<string, number> = {};
   for (const x of exs) if (x.item) { own[x.item] = (own[x.item] ?? 0) + x.rate; ownCount[x.item] = (ownCount[x.item] ?? 0) + x.count; }
   const waterNeed = g.inputs.find(([i]) => i === WATER)?.[1] ?? 0;
+  const made = useMemo(() => madeInside(g), [g]);
+  const shorts = useMemo(() => shortfallsOf(g), [g]);
   const waterHave = own[WATER] ?? 0;
 
   // Raw resources: what its extractors (or, before a resync, its nodes) give vs. what the machines use.
@@ -103,6 +105,21 @@ export function BuiltView({ f }: { f: Factory }) {
         kind: 'clock', score: 60,
         title: `${slowCount} machine${slowCount > 1 ? 's run' : ' runs'} below 100%`,
         detail: `${slow.map((x) => `${x.g.count} × ${x.r.name} at ${fmt(x.avgClock, 1)}%`).slice(0, 4).join(', ')}. At 100% they would make about ${gain} more per minute — if their inputs keep up.`,
+      });
+    }
+    // Shortfalls: items made here but used faster than they're made.
+    for (const [item, short] of shorts.slice(0, 5)) {
+      const makers = rows.filter((x) => x.outputs.some(([i]) => i === item));
+      if (!makers.length) continue;
+      const m = makers[0];
+      const per = perMinute(m.r, m.r.out.find(([i]) => i === item)![1]);
+      const n = Math.ceil(short / per - 1e-9);
+      const users = rows.filter((x) => x.inputs.some(([i]) => i === item)).map((x) => `${x.g.count} × ${x.r.name}`);
+      const madeNow = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
+      t.push({
+        kind: 'resource', score: 70,
+        title: `${itemName(item)} is short by ${rateText(item, short)}`,
+        detail: `It's made here (${rateText(item, madeNow)} from ${makers.map((x) => `${x.g.count} × ${x.r.name}`).join(', ')}), but ${users.join(', ')} ${users.length === 1 && users[0].startsWith('1 ×') ? 'wants' : 'want'} ${rateText(item, madeNow + short)}. ${m.avgClock < 99.5 ? `Raise the ${m.r.name} machines to 100%, or add` : 'Add'} ${n} more ${plural(m.m?.name ?? 'machine', n)} on ${m.r.name}${n * per > short + 1e-6 ? ` (${n > 1 ? 'all' : ''} at ${fmt((short / n / per) * 100, 1)}%)` : ''} — if their inputs allow — or underclock the machines using it to match.`,
       });
     }
     // Water: what the machines need vs. what its water extractors pump.
@@ -164,7 +181,7 @@ export function BuiltView({ f }: { f: Factory }) {
       ? suggestions(fMax, deferredMax, state.progress, state.factories, plans, state.game?.occupied, true).filter((x) => x.kind !== 'clock' || x.title.includes('shard'))
       : [];
     return [...t, ...fromSuggest].sort((a, b) => b.score - a.score);
-  }, [surplus, rows, possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
+  }, [shorts, surplus, rows, possible, builtOut, slow, slowCount, bestOk, best, g, f.target, fMax, deferredMax, state.progress, state.factories, plans, state.game, bestMachines, machinesBuilt]);
 
   const rename = () => {
     const name = prompt('Factory name', f.name);
@@ -231,13 +248,14 @@ export function BuiltView({ f }: { f: Factory }) {
           </section>
           <section className="card">
             <h2>Uses</h2>
+            {shorts.length > 0 && <p className="muted small-text">Rows marked “made here” are made by this factory but used faster than they’re made — not outside supply.</p>}
             <table className="table compact">
               <tbody>
                 {g.inputs.map(([i, v]) => (
                   <tr key={i}>
                     <td><ItemTag item={i} rate={v} /></td>
                     <td className="muted small-text">
-                      <SourceText item={i} need={v} own={own[i]} ownCount={ownCount[i]} nodes={f.nodes.filter((id) => nodeById[id]?.item === i).length} outside={f.extraSupply[i]} hasExtractors={exs.length > 0} />
+                      <SourceText item={i} need={v} own={own[i]} ownCount={ownCount[i]} nodes={f.nodes.filter((id) => nodeById[id]?.item === i).length} outside={f.extraSupply[i]} hasExtractors={exs.length > 0} madeHere={made.has(i)} />
                     </td>
                   </tr>
                 ))}
@@ -361,15 +379,17 @@ function Meter({ label, pct, value, note }: { label: string; pct: number | null;
 }
 
 /** Where an input comes from: its own extractors (with a shortfall warning), nodes, outside supply. */
-function SourceText({ item, need, own, ownCount, nodes, outside, hasExtractors }: {
-  item: string; need: number; own?: number; ownCount?: number; nodes: number; outside?: number; hasExtractors: boolean;
+function SourceText({ item, need, own, ownCount, nodes, outside, hasExtractors, madeHere }: {
+  item: string; need: number; own?: number; ownCount?: number; nodes: number; outside?: number; hasExtractors: boolean; madeHere: boolean;
 }) {
+  // Made by this factory's own machines: the amount shown is how much more its machines want than is made.
+  if (madeHere) return <span className="warn-text" title="Made here, but the machines using it want more than the machines making it produce at their current clocks.">made here — short by this much</span>;
   const parts: React.ReactNode[] = [];
   if (own) {
     const short = need - (outside ?? 0) - own;
     parts.push(
       <span key="own" className={short > 0.01 ? 'warn-text' : ''}>
-        {ownCount} {item === WATER ? 'water extractor' : 'extractor'}{(ownCount ?? 0) > 1 ? 's' : ''} give {rateText(item, own)}
+        {ownCount} {item === WATER ? 'water extractor' : 'extractor'}{(ownCount ?? 0) > 1 ? 's give' : ' gives'} {rateText(item, own)}
         {short > 0.01 ? ` — short ${rateText(item, short)}` : ''}
       </span>,
     );
@@ -380,4 +400,10 @@ function SourceText({ item, need, own, ownCount, nodes, outside, hasExtractors }
     else parts.push(<span key="x">{RAW_ITEMS.includes(item) ? 'extractors' : 'made nearby'}</span>);
   }
   return <>{parts}</>;
+}
+
+/** "Foundry" → "Foundries", "Constructor" → "Constructors" when n > 1. */
+function plural(name: string, n: number) {
+  if (n === 1) return name;
+  return /[^aeiou]y$/i.test(name) ? name.slice(0, -1) + 'ies' : name + 's';
 }

@@ -1,6 +1,6 @@
 // Combining and separating factories — both ones found in the save and ones in the planner.
 import { itemName, POWER } from '../data/game';
-import { combineBuilt, detectFactories, factoryFromFound, matchFound, noRules, type FoundFactory, type GroupRules } from './gameFactories';
+import { combineBuilt, detectFactories, factoryFromFound, matchFound, noRules, outsideSupplyOf, type FoundFactory, type GroupRules } from './gameFactories';
 import { computeUnlocks, type Progress } from './progression';
 import type { GameSync } from './saveSync';
 import type { Factory } from './types';
@@ -25,8 +25,14 @@ export function refreshLinked(factories: Factory[], found: FoundFactory[]): Fact
     if (!f.game) return f;
     const list = byFactory.get(f.id);
     if (!list?.length) return { ...f, game: { ...f.game, missing: true } };
-    return withPowerProduct({ ...f, game: { ...combineBuilt(list.map((x) => x.built)), updatedAt: Date.now() } });
+    const built = combineBuilt(list.map((x) => x.built));
+    return withPowerProduct({ ...f, extraSupply: outsideSupplyOf(built, f.extraSupply), game: { ...built, updatedAt: Date.now() } });
   });
+}
+
+/** Built factories: outside supply follows the game (drops items the factory makes itself). */
+export function withGameSupply(f: Factory): Factory {
+  return f.game ? { ...f, extraSupply: outsideSupplyOf(f.game, f.extraSupply) } : f;
 }
 
 /**

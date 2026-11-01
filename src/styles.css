@@ -293,3 +293,7 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .surplus-tag { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--warn); border: 1px solid #6b5a1f; border-radius: 4px; padding: 0 4px; margin-left: 6px; }
 .surplus-head { margin-top: 12px; }
 .equip-sep td { color: var(--accent2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding-top: 12px !important; }
+.combine-bar { margin: 0 8px 8px; padding: 8px; border: 1px solid var(--accent); border-radius: 8px; background: #3a2a1c55; display: flex; flex-direction: column; gap: 6px; }
+.combine-bar select { width: 100%; }
+.factory-item.picked { background: #3a2a1c; border-color: var(--accent); }
+.fi-check { margin: 0 6px 0 0; vertical-align: middle; pointer-events: none; }

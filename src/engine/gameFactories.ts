@@ -168,16 +168,13 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
 
   const nodeIds = g.nodes;
   const exGroups = describeExtractors(g.extractors);
-  const extraSupply: Record<string, number> = {};
-  for (const [item, need] of inputs) {
-    if (item === WATER) continue; // the planner pumps water wherever it's needed
-    // What this factory's own extractors deliver (at their in-game clocks); fall back to the node's best rate.
-    const own = exGroups.filter((x) => x.item === item).reduce((a, x) => a + x.rate, 0);
-    const mined = RAW_ITEMS.includes(item)
-      ? own || nodeIds.map((id) => nodeById[id]).filter((n) => n.item === item).reduce((a, n) => a + nodeRate(n, u), 0)
-      : 0;
-    if (need - mined > 0.01) extraSupply[item] = round(need - mined);
+  // Raw resources without an extractor on this network: fall back to the best rate of its claimed nodes.
+  const nodeFallback: Record<string, number> = {};
+  for (const id of nodeIds) {
+    const n = nodeById[id];
+    if (n && !exGroups.some((x) => x.item === n.item)) nodeFallback[n.item] = (nodeFallback[n.item] ?? 0) + nodeRate(n, u);
   }
+  const extraSupply = outsideSupplyOf({ groups: [...groups.values()].map(({ clockMap, ...x }) => ({ ...x, clocks: [...clockMap.entries()] })), inputs, extractors: exGroups }, {}, nodeFallback);
 
   const cx = ms.reduce((a, m) => a + m.x, 0) / ms.length;
   const cy = ms.reduce((a, m) => a + m.y, 0) / ms.length;
@@ -206,6 +203,41 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
       },
     },
   };
+}
+
+/**
+ * What really comes from outside a built factory: items its machines use but none of them make, and raw
+ * resources beyond what its own extractors deliver. Items made inside but used faster than they are made
+ * are a shortfall, not outside supply (see shortfallsOf). Water is pumped on site, so never counted.
+ * `previous` keeps raw entries when older data has no extractor list.
+ */
+export function outsideSupplyOf(
+  built: Pick<BuiltInfo, 'groups' | 'inputs' | 'extractors'>,
+  previous: Record<string, number> = {},
+  mined: Record<string, number> = {},
+): Record<string, number> {
+  const made = madeInside(built);
+  const own: Record<string, number> = { ...mined };
+  for (const x of built.extractors ?? []) if (x.item) own[x.item] = (own[x.item] ?? 0) + x.rate;
+  const out: Record<string, number> = {};
+  for (const [item, need] of built.inputs) {
+    if (item === WATER || made.has(item)) continue;
+    if (RAW_ITEMS.includes(item)) {
+      if (!built.extractors) { if (previous[item]) out[item] = previous[item]; continue; }
+      const short = need - (own[item] ?? 0);
+      if (short > 0.01) out[item] = round(short);
+    } else out[item] = round(need);
+  }
+  return out;
+}
+
+/** Items made by a built factory's own machines. */
+export const madeInside = (built: Pick<BuiltInfo, 'groups'>) => new Set(built.groups.flatMap((g) => recipes[g.recipe]?.out.map(([i]) => i) ?? []));
+
+/** Items made inside but used faster than they're made (per minute short, at the in-game clocks). */
+export function shortfallsOf(built: Pick<BuiltInfo, 'groups' | 'inputs'>): [string, number][] {
+  const made = madeInside(built);
+  return built.inputs.filter(([i, v]) => made.has(i) && v > 0.01);
 }
 
 /** Extractors summed by kind and resource, with output and power at their in-game clocks. */

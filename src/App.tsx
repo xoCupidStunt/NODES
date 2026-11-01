@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { MapView } from './components/MapView';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Results } from './components/Results';
@@ -23,6 +23,23 @@ export default function App() {
   const { state, dispatch, active, plans } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const newInGame = useNewGameFactories();
+  // Combine mode: tick factories in the list, pick which one keeps its name and settings.
+  const [combining, setCombining] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [keep, setKeep] = useState<string | null>(null);
+  const pickedNow = picked.filter((id) => state.factories.some((f) => f.id === id));
+  const keepId = keep && pickedNow.includes(keep) ? keep : pickedNow[0] ?? null;
+  const togglePick = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const stopCombining = () => { setCombining(false); setPicked([]); setKeep(null); };
+  const combine = () => {
+    if (!keepId || pickedNow.length < 2) return;
+    const others = pickedNow.filter((id) => id !== keepId);
+    const name = (id: string) => state.factories.find((f) => f.id === id)?.name ?? '';
+    if (!confirm(`Combine ${others.map(name).join(', ')} into ${name(keepId)}?\n\nTheir products, nodes and supply move into ${name(keepId)} and they are removed from the list. Factories from your game stay linked as one.`)) return;
+    dispatch({ type: 'combineFactories', ids: [keepId, ...others] });
+    dispatch({ type: 'select', id: keepId });
+    stopCombining();
+  };
   const showGameFactories = () => {
     dispatch({ type: 'view', view: 'progress' });
     setTimeout(() => document.getElementById('game-factories')?.scrollIntoView({ behavior: 'smooth' }), 50);
@@ -64,8 +81,24 @@ export default function App() {
         </button>
         <div className="side-head">
           <span>Factories</span>
-          <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>
+          <div className="row gap">
+            {state.factories.length > 1 && (
+              <button className={`small ${combining ? 'on' : ''}`} onClick={() => (combining ? stopCombining() : setCombining(true))} title="Combine factories">{combining ? 'Cancel' : 'Combine'}</button>
+            )}
+            {!combining && <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>}
+          </div>
         </div>
+        {combining && (
+          <div className="combine-bar">
+            <div className="small-text">{pickedNow.length < 2 ? 'Tick the factories to combine.' : <>Combine {pickedNow.length} into:</>}</div>
+            {pickedNow.length >= 2 && (
+              <select value={keepId ?? ''} onChange={(e) => setKeep(e.target.value)} aria-label="Factory to keep">
+                {pickedNow.map((id) => <option key={id} value={id}>{state.factories.find((f) => f.id === id)?.name}</option>)}
+              </select>
+            )}
+            <button className="small primary" disabled={pickedNow.length < 2} onClick={combine}>Combine {pickedNow.length >= 2 ? pickedNow.length : ''}</button>
+          </div>
+        )}
         {newInGame > 0 && (
           <button className="small ingame-hint" onClick={showGameFactories}>⇩ {newInGame} factor{newInGame > 1 ? 'ies' : 'y'} found in your game</button>
         )}
@@ -74,8 +107,8 @@ export default function App() {
           {state.factories.map((f) => {
             const p = plans[f.id];
             return (
-              <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' && state.view !== 'world' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
-                <div className="fi-name">{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
+              <button key={f.id} className={`factory-item ${combining ? (pickedNow.includes(f.id) ? 'picked' : '') : f.id === state.activeId && state.view !== 'progress' && state.view !== 'world' ? 'on' : ''}`} onClick={() => (combining ? togglePick(f.id) : dispatch({ type: 'select', id: f.id }))}>
+                <div className="fi-name">{combining && <input type="checkbox" readOnly checked={pickedNow.includes(f.id)} tabIndex={-1} className="fi-check" />}{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
                 <div className="muted">
                   {p?.status === 'ok' ? `${rateText(f.target, p.rate)} ` : ''}{itemName(f.target)}
                   {f.location ? ' · placed' : ''}
