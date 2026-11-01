@@ -209,14 +209,15 @@ export function builtSuggestions(
         const near = nearestNodes(item, f.location, taken, 1)[0];
         const add = near ? nodeRate(near.node, u) : 0;
         const gain = add ? gainWith(item, add) : 0;
-        if (near && gain > 0.05) ways.push(`${ways.length ? 'Or mine' : 'Mine'} the nearest free ${itemName(item)} node (${near.node.purity}, ${fmt(near.d, 0)} m away): +${rate(item, add)}, about +${rate(f.target, gain)} ${itemName(f.target)}`);
+        if (near && gain > 0.05) ways.push(`Mine the nearest free ${itemName(item)} node (${near.node.purity}, ${fmt(near.d, 0)} m away): +${rate(item, add)}, about +${rate(f.target, gain)} ${itemName(f.target)}`);
       }
       if (!ways.length) continue;
       tips.push({
         kind: 'resource', score: 85,
         title: `${itemName(item)} is what limits output`,
         detail: `All ${rate(item, have)} its extractors deliver is used, and more of it alone raises output.`,
-        steps: [...ways, 'Then add machines downstream to use it — “Plan changes” → Results shows how many'],
+        options: ways,
+        steps: ['Then add machines downstream to use it — “Plan changes” → Results shows how many'],
       });
     }
     // Fully used as built, but more of just one wouldn't help.
@@ -300,9 +301,9 @@ export function builtSuggestions(
       kind: 'clock', score: 25,
       title: `${rate(x.item, left)} ${itemName(x.item)} is mined but not used`,
       detail: `Extractors deliver ${rate(x.item, have)}; the machines use ${rate(x.item, used)}.`,
-      steps: [
+      options: [
         `Set ${count === 1 ? 'the' : `the ${count}`} ${exName({ type: x.type, count })} on ${itemName(x.item)} to ${fmt((c * used) / have)}% (saves ${mw(saved)})`,
-        usedByMax.includes(x.item) ? `Or keep it and put it to work — see ${upTo}` : 'Or keep it if you plan to grow the factory',
+        usedByMax.includes(x.item) ? `Keep it and put it to work — see ${upTo}` : 'Keep it if you plan to grow the factory',
       ],
     });
   }
@@ -323,7 +324,16 @@ export function builtSuggestions(
         kind: 'resource', score: 90,
         title: `Water is short by ${rate(WATER, short)}`,
         detail: `Machines need ${rate(WATER, waterNeed)}; ${pumpCount ? `its water extractors pump ${rate(WATER, waterHave)}` : 'no water extractors are connected'}.${loop}`,
-        steps: [`Add ${n} Water ${plural('Extractor', n)}${n * pump.rate > short + 1e-6 ? ` at ${fmt((short / n / pump.rate) * 100)}%` : ''}${pumpCount ? ', or raise the clocks of the ones you have' : ''}`],
+        options: [
+          `Add ${n} Water ${plural('Extractor', n)}${n * pump.rate > short + 1e-6 ? ` at ${fmt((short / n / pump.rate) * 100)}%` : ''}`,
+          ...(() => {
+            if (!pumpCount) return [];
+            const c = exClock(pumps.flatMap((x) => x.clocks));
+            const to = (c * waterNeed) / waterHave;
+            const top = u.overclock && progress.shards > 0 ? 250 : 100;
+            return to <= top + 0.01 ? [`Set the ${pumpCount} Water ${plural('Extractor', pumpCount)} you have to ${fmt(to)}%${to > 100.01 ? ' (uses power shards)' : ''}`] : [];
+          })(),
+        ],
       });
     } else if (pumpCount > 0) {
       const each = waterHave / pumpCount;
@@ -334,10 +344,10 @@ export function builtSuggestions(
         tips.push({
           kind: 'clock', score: 20,
           title: `${sparePumps} water ${plural('extractor', sparePumps)} more than needed`,
-          detail: `They pump ${rate(WATER, waterHave)} for a need of ${rate(WATER, waterNeed)}.${loop}`,
-          steps: [
-            `Remove ${sparePumps} Water ${plural('Extractor', sparePumps)} (saves about ${mw(sparePumps * pw)}), or set all ${pumpCount} to ${fmt((c * waterNeed) / waterHave)}%`,
-            ...(recycled.length ? [`Keep them if the ${list(recycled.map((x) => x.r.name))} water isn't piped back in — then you need ${rate(WATER, waterNeed + loopWater)}`] : []),
+          detail: `They pump ${rate(WATER, waterHave)} for a need of ${rate(WATER, waterNeed)}.${loop}${recycled.length ? ` If that water isn't piped back in, the machines need ${rate(WATER, waterNeed + loopWater)} — keep them all.` : ''}`,
+          options: [
+            `Remove ${sparePumps} Water ${plural('Extractor', sparePumps)} (saves about ${mw(sparePumps * pw)})`,
+            `Set all ${pumpCount} to ${fmt((c * waterNeed) / waterHave)}%`,
           ],
         });
       }
@@ -365,7 +375,7 @@ export function builtSuggestions(
     const makers = rows.filter((x) => x.outputs.some(([i]) => i === item));
     const made = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
     const used = made - left;
-    const steps = makers.length === 1
+    const options = makers.length === 1
       ? [setTo(makers[0].r.id, makers[0].speed * (used / made))]
       : [`Slow the ${list(makers.map((x) => x.r.name))} machines to about ${fmt((used / made) * 100)}% of their current clocks`];
     const gen = Object.values(recipes).find((r) => r.generator && !r.noPlan && r.in[0]?.[0] === item && u.buildings.has(r.machine));
@@ -373,14 +383,14 @@ export function builtSuggestions(
       const per = gen.in[0][1];
       const mwEach = gen.out.find(([i]) => i === POWER)?.[1] ?? 0;
       const n = Math.ceil(left / per - 1e-9);
-      steps.push(`Or burn it: ${n} ${plural(machines[gen.machine]?.name ?? 'generator', n)}${n * per > left + 1e-6 ? ` at ${fmt((left / per / n) * 100)}%` : ''} make about ${mw((left / per) * mwEach)}`);
+      options.push(`Burn it: ${n} ${plural(machines[gen.machine]?.name ?? 'generator', n)}${n * per > left + 1e-6 ? ` at ${fmt((left / per / n) * 100)}%` : ''} make about ${mw((left / per) * mwEach)}`);
     }
-    if (usedByMax.includes(item)) steps.push(`Or put it to work — see ${upTo}`);
+    if (usedByMax.includes(item)) options.push(`Put it to work — see ${upTo}`);
     tips.push({
       kind: 'byproduct', score: 30,
       title: `${rate(item, left)} ${itemName(item)} is surplus`,
       detail: `Made at ${rate(item, made)}, used at ${rate(item, used)}. Unless the extra leaves by belt or train, it backs up and those machines idle.`,
-      steps,
+      ...(options.length > 1 ? { options } : { steps: options }),
     });
   }
 

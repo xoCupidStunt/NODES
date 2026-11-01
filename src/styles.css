@@ -302,3 +302,11 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .tip-steps { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
 .tip-steps li { margin: 2px 0; }
 .tip-steps li::marker { color: var(--accent, #f39c12); font-weight: 600; }
+
+/* Either/or choices under a suggestion */
+.tip-options { margin-top: 6px; font-size: 13px; }
+.tip-options-head { font-size: 11px; color: var(--muted, #999); text-transform: uppercase; letter-spacing: 0.05em; }
+.tip-options ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.tip-options li { display: flex; gap: 8px; align-items: baseline; }
+.tip-options .opt-or { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+.tip-options + .tip-steps { margin-top: 6px; }

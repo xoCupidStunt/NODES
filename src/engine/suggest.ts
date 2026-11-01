@@ -9,7 +9,9 @@ export interface Tip {
   kind: 'resource' | 'recipe' | 'clock' | 'logistics' | 'byproduct' | 'import' | 'research' | 'sloop';
   title: string;
   detail: string;
-  /** Simple steps to make the change, in order. */
+  /** Alternatives: do one of these. */
+  options?: string[];
+  /** Simple steps to make the change, in order (after the chosen option, if any). */
   steps?: string[];
   /** Rough size of the win, used for sorting. */
   score: number;
