@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react';
 import { factoryFromFound, matchFound, type FoundFactory } from '../engine/gameFactories';
 import type { Factory } from '../engine/types';
 import { newFactory, useStore } from '../state';
-import { itemColor, itemName } from '../data/game';
+import { itemColor } from '../data/game';
 import { SeparatePanel } from './SeparatePanel';
-import { fmt, mw } from './ui';
+import { amountName, mw } from './ui';
 
 const SMALL = 2; // setups with this many machines or fewer are tucked away
 
@@ -158,7 +158,7 @@ export function Makes({ ff }: { ff: FoundFactory }) {
         .slice()
         .sort((a, b) => (a[0] === ff.target ? -1 : b[0] === ff.target ? 1 : b[1] - a[1]))
         .map(([i, v]) => (
-          <div key={i} className={i === ff.target ? 'make-main' : ''}><span className="swatch" style={{ background: itemColor(i) }} />{fmt(v)} {itemName(i)}</div>
+          <div key={i} className={i === ff.target ? 'make-main' : ''}><span className="swatch" style={{ background: itemColor(i) }} />{amountName(i, v)}</div>
         ))}
     </div>
   );

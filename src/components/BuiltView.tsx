@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo } from 'react';
-import { itemName, MACHINE_COLORS, machines, perMinute, RAW_ITEMS, recipes } from '../data/game';
+import { isPower, itemName, MACHINE_COLORS, machines, perMinute, POWER, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { buildPlan, clockPower, nodeById, nodeRate } from '../engine/plan';
 import { recipePower } from '../engine/solver';
 import { suggestions, type Tip } from '../engine/suggest';
@@ -8,7 +8,7 @@ import { useStore } from '../state';
 import { AsBuiltCard } from './AsBuiltCard';
 import { CombineSeparateCard } from './CombineSeparateCard';
 import { ago } from './SaveSyncCard';
-import { fmt, ItemTag, mw, Stat } from './ui';
+import { fmt, ItemTag, mw, rateText, Stat } from './ui';
 
 /** Totals for one recipe's machines at the clocks set in game. */
 function groupRates(g: BuiltGroup) {
@@ -36,6 +36,7 @@ export function BuiltView({ f }: { f: Factory }) {
 
   const rows = useMemo(() => g.groups.map((x) => ({ g: x, ...groupRates(x) })), [g]);
   const builtOut = g.outputs.find(([i]) => i === f.target)?.[1] ?? 0;
+  const powerMade = g.outputs.find(([i]) => i === POWER)?.[1] ?? 0;
   const machinesBuilt = g.groups.reduce((a, x) => a + x.count, 0);
   const avgClock = machinesBuilt ? rows.reduce((a, x) => a + x.speed, 0) / machinesBuilt * 100 : 0;
   const slow = rows.filter((x) => x.avgClock < 99.5);
@@ -47,7 +48,8 @@ export function BuiltView({ f }: { f: Factory }) {
     const n = nodeById[id];
     if (n) nodeSupply[n.item] = (nodeSupply[n.item] ?? 0) + nodeRate(n, best.unlocks);
   }
-  const rawUse = g.inputs.filter(([i]) => RAW_ITEMS.includes(i));
+  // Water is pumped wherever needed, so it doesn't count against the nodes.
+  const rawUse = g.inputs.filter(([i]) => RAW_ITEMS.includes(i) && i !== WATER);
   const rawSupplied = Object.values(nodeSupply).reduce((a, b) => a + b, 0) + rawUse.reduce((a, [i]) => a + (f.extraSupply[i] ?? 0), 0);
   const rawUsed = rawUse.reduce((a, [, v]) => a + v, 0);
 
@@ -63,8 +65,8 @@ export function BuiltView({ f }: { f: Factory }) {
     if (possible !== null && possible > builtOut * 1.02) {
       t.push({
         kind: 'resource', score: 95,
-        title: `Up to ${fmt(possible)}/min of ${itemName(f.target)} with what it already gets (+${fmt(((possible - builtOut) / Math.max(builtOut, 1e-9)) * 100, 0)}%)`,
-        detail: `The planner's best layout for the same nodes and outside supply makes ${fmt(possible)}/min instead of ${fmt(builtOut)}/min. Open “Plan changes” → Results for the machines and clocks.`,
+        title: `Up to ${rateText(f.target, possible)} of ${itemName(f.target)} with what it already gets (+${fmt(((possible - builtOut) / Math.max(builtOut, 1e-9)) * 100, 0)}%)`,
+        detail: `The planner's best layout for the same nodes and outside supply makes ${rateText(f.target, possible)} instead of ${rateText(f.target, builtOut)}. Open “Plan changes” → Results for the machines and clocks.`,
       });
     }
     if (slowCount > 0) {
@@ -110,7 +112,7 @@ export function BuiltView({ f }: { f: Factory }) {
           <span className="muted small-text">updated {ago(g.updatedAt)}</span>
         </div>
         <div className="row gap wrap">
-          <button className="primary" onClick={() => dispatch({ type: 'view', view: 'schematic' })}>Show schematic</button>
+          <button className="primary" onClick={() => dispatch({ type: 'view', view: 'schematic' })}>Generate schematic</button>
           <button onClick={() => dispatch({ type: 'showOnMap', focus: { kind: 'factory', id: f.id } })}>Show on map</button>
           <button className="ghost" onClick={() => dispatch({ type: 'view', view: 'setup' })}>Plan changes…</button>
         </div>
@@ -120,10 +122,11 @@ export function BuiltView({ f }: { f: Factory }) {
         {g.missing && <p className="warn">These machines weren’t in the last synced save — the factory may have been torn down or rebuilt.</p>}
 
         <div className="stats">
-          <Stat label="Main product" value={`${fmt(builtOut)} /min`} sub={itemName(f.target)} />
+          <Stat label="Main product" value={rateText(f.target, builtOut)} sub={itemName(f.target)} />
           <Stat label="Products" value={String(g.outputs.length)} sub={g.outputs.length > 1 ? 'made here' : 'made here'} />
           <Stat label="Machines" value={String(machinesBuilt)} sub={`${g.groups.length} recipes`} />
-          <Stat label="Power" value={mw(g.power)} sub="production machines" />
+          <Stat label="Power used" value={mw(g.power)} sub="production machines" />
+          {powerMade > 0 && <Stat label="Power made" value={mw(powerMade)} sub={`net ${powerMade - g.power >= 0 ? '+' : ''}${mw(powerMade - g.power)} to the grid`} />}
           <Stat label="Average clock" value={`${fmt(avgClock, 1)}%`} sub={slowCount ? `${slowCount} below 100%` : 'all at 100% or more'} />
         </div>
 
@@ -192,15 +195,15 @@ export function BuiltView({ f }: { f: Factory }) {
             <Meter
               label="Output vs. what’s possible"
               pct={outputPct}
-              value={possible === null ? 'no plan' : `${fmt(builtOut)} of ${fmt(possible)} /min`}
+              value={possible === null ? 'no plan' : `${rateText(f.target, builtOut)} of ${rateText(f.target, possible)}`}
               note="Main product now, vs. the most the planner can make from the same nodes and outside supply."
             />
-            <Meter
+            {!isPower(f.target) && <Meter
               label="Power per item"
               pct={bestOk && powerPerItem > 0 ? Math.min(100, (bestPowerPerItem / powerPerItem) * 100) : null}
               value={bestOk ? `${fmt(powerPerItem, 2)} MW vs. best ${fmt(bestPowerPerItem, 2)} MW` : '—'}
               note="Machine power per item/min of the main product, vs. the best layout for the same output."
-            />
+            />}
             <Meter
               label="Machines"
               pct={bestOk && machinesBuilt ? Math.min(100, (bestMachines / machinesBuilt) * 100) : null}

@@ -1,7 +1,7 @@
 import { machines, MACHINE_COLORS, recipes } from '../data/game';
 import type { Plan } from '../engine/plan';
 import type { Factory } from '../engine/types';
-import { fmt, ItemTag, mw } from './ui';
+import { fmt, ItemTag, mw, rateText } from './ui';
 import { ago } from './SaveSyncCard';
 
 /** Side-by-side: what's built in the game vs. the planner's plan for the same output. */
@@ -28,7 +28,7 @@ export function AsBuiltCard({ f, plan }: { f: Factory; plan: Plan }) {
       </div>
       {g.missing && <p className="warn">These machines weren’t in the last synced save — the factory may have been torn down or rebuilt.</p>}
       <div className="stats compare">
-        <div className="stat"><div className="stat-label">Output in game</div><div className="stat-value">{fmt(builtOut)}<span className="muted small-text"> /min</span></div><div className="stat-sub">plan: {fmt(plan.rate)} /min</div></div>
+        <div className="stat"><div className="stat-label">Output in game</div><div className="stat-value">{rateText(f.target, builtOut)}</div><div className="stat-sub">plan: {rateText(f.target, plan.rate)}</div></div>
         <div className="stat"><div className="stat-label">Machines</div><div className="stat-value">{builtMachines}</div><div className={`stat-sub ${dMachines < 0 ? 'ok-text' : ''}`}>plan: {planMachines} ({dMachines > 0 ? '+' : ''}{dMachines})</div></div>
         <div className="stat"><div className="stat-label">Machine power</div><div className="stat-value">{mw(g.power)}</div><div className={`stat-sub ${dPower < -0.5 ? 'ok-text' : ''}`}>plan: {mw(plan.power.machines)} ({dPower > 0 ? '+' : ''}{mw(dPower)})</div></div>
       </div>

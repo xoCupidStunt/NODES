@@ -6,7 +6,7 @@ import { SchematicView } from './components/SchematicView';
 import { Setup } from './components/Setup';
 import { itemName } from './data/game';
 import { exportState, newFactory, parseImport, useStore, type View } from './state';
-import { fmt } from './components/ui';
+import { rateText } from './components/ui';
 import { SyncStatus } from './components/SyncStatus';
 import { WorldMap } from './components/WorldMap';
 import { BuiltView } from './components/BuiltView';
@@ -77,7 +77,7 @@ export default function App() {
               <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' && state.view !== 'world' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
                 <div className="fi-name">{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
                 <div className="muted">
-                  {p?.status === 'ok' ? `${fmt(p.rate)}/min ` : ''}{itemName(f.target)}
+                  {p?.status === 'ok' ? `${rateText(f.target, p.rate)} ` : ''}{itemName(f.target)}
                   {f.location ? ' · placed' : ''}
                 </div>
               </button>
@@ -110,7 +110,7 @@ export default function App() {
                 <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
               )}
               {active.game && state.view === 'schematic' ? (
-                <span className="muted small-text">Build schematic for the best layout of this factory</span>
+                <span className="muted small-text">Generated schematic — visual reference only</span>
               ) : (
                 <nav className="tabs">
                   {active.game && <span className="muted small-text">Planning changes:</span>}

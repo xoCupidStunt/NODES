@@ -1,7 +1,7 @@
 import raw from './gameData.json';
 import nodesRaw from './nodes.json';
 
-export type Form = 'solid' | 'liquid' | 'gas';
+export type Form = 'solid' | 'liquid' | 'gas' | 'power';
 export interface Item { id: string; name: string; form: Form; sink: number; raw: boolean }
 export interface Recipe {
   id: string;
@@ -13,10 +13,16 @@ export interface Recipe {
   out: [string, number][];
   pc?: number; // variable power constant (MW)
   pf?: number; // variable power factor (MW)
+  /** A generator burning fuel (or a geyser) to make power. */
+  generator?: boolean;
+  /** Only for describing built factories (e.g. geothermal); never planned. */
+  noPlan?: boolean;
 }
 export interface Machine {
   id: string; name: string; power: number; exp: number; boostExp: number; speed: number;
   sloots: number; variable: boolean; w: number; l: number; h: number;
+  /** Generators: power made at 100 % clock (MW). */
+  generator?: boolean; mw?: number;
 }
 export interface Extractor {
   id: string; name: string; kind: 'miner' | 'oil' | 'water' | 'well' | 'pressurizer';
@@ -56,8 +62,11 @@ export const extractors = game.extractors;
 export const schematicsById = Object.fromEntries(game.schematics.map((s) => [s.id, s]));
 
 export const itemName = (id: string) => items[id]?.name ?? id.replace(/^Desc_|_C$/g, '');
-export const isFluid = (id: string) => items[id] != null && items[id].form !== 'solid';
-export const unit = (id: string) => (isFluid(id) ? 'm³/min' : '/min');
+/** Power is treated as a product (MW); it travels by power line, not belt or pipe. */
+export const POWER = 'Desc_Power_C';
+export const isPower = (id: string) => id === POWER;
+export const isFluid = (id: string) => items[id] != null && (items[id].form === 'liquid' || items[id].form === 'gas');
+export const unit = (id: string) => (isPower(id) ? 'MW' : isFluid(id) ? 'm³/min' : '/min');
 
 export const PURITY_MULT = { impure: 0.5, normal: 1, pure: 2 } as const;
 export const FOUNDATION = 8; // metres
@@ -86,7 +95,7 @@ const PALETTE: Record<string, string> = {
   Desc_OreIron_C: '#b0705a', Desc_OreCopper_C: '#d9844a', Desc_Stone_C: '#c9bfa5', Desc_Coal_C: '#4a4a4a',
   Desc_OreGold_C: '#e3b341', Desc_RawQuartz_C: '#e58fc5', Desc_Sulfur_C: '#d7d93e', Desc_OreBauxite_C: '#c4553f',
   Desc_OreUranium_C: '#6fd64a', Desc_LiquidOil_C: '#7a4fa3', Desc_Water_C: '#3fa0e0', Desc_NitrogenGas_C: '#8fb3c9',
-  Desc_SAM_C: '#a24fd6', Desc_Geyser_C: '#e05f3f',
+  Desc_SAM_C: '#a24fd6', Desc_Geyser_C: '#e05f3f', Desc_Power_C: '#ffd23f',
 };
 export function itemColor(id: string): string {
   if (PALETTE[id]) return PALETTE[id];
@@ -100,4 +109,6 @@ export const MACHINE_COLORS: Record<string, string> = {
   Build_FoundryMk1_C: '#c4553f', Build_ManufacturerMk1_C: '#8f6bd9', Build_OilRefinery_C: '#3fae8f',
   Build_Packager_C: '#9cb35a', Build_Blender_C: '#3f8fae', Build_HadronCollider_C: '#d94f8f',
   Build_Converter_C: '#a24fd6', Build_QuantumEncoder_C: '#5a6bd9',
+  Build_GeneratorBiomass_Automated_C: '#7fae3f', Build_GeneratorCoal_C: '#5c5c5c', Build_GeneratorFuel_C: '#d9a03f',
+  Build_GeneratorNuclear_C: '#6fd64a', Build_GeneratorGeoThermal_C: '#e05f3f',
 };

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { itemName, items, producibleItems, RAW_ITEMS, recipes } from '../data/game';
+import { itemName, producibleItems, RAW_ITEMS, recipes, unit } from '../data/game';
 import { allowedRecipes } from '../engine/plan';
 import { helpfulFactories, rawDemand } from '../engine/placement';
 import type { Mode } from '../engine/solver';
@@ -54,7 +54,7 @@ export function Setup({ f }: { f: Factory }) {
             <input type="checkbox" checked={f.rate === null} onChange={(e) => update({ rate: e.target.checked ? null : 10 })} /> As much as possible
           </label>
           {f.rate !== null && (
-            <label>Target <NumberInput value={f.rate} step={0.5} onChange={(v) => update({ rate: v ?? 0 })} /> {items[f.target]?.form !== 'solid' ? 'm³' : ''}/min</label>
+            <label>Target <NumberInput value={f.rate} step={0.5} onChange={(v) => update({ rate: v ?? 0 })} /> {unit(f.target)}</label>
           )}
         </div>
         {!options.some((o) => o.id === f.target) && <p className="warn">{itemName(f.target)} can’t be made with your current unlocks.</p>}
@@ -65,7 +65,7 @@ export function Setup({ f }: { f: Factory }) {
             <div key={k} className="row gap wrap also-row">
               <ItemPicker value={a.item} options={options} onChange={(item) => update({ also: f.also.map((x, j) => (j === k ? { ...x, item } : x)) })} />
               <NumberInput value={a.rate} step={0.5} onChange={(v) => update({ also: f.also.map((x, j) => (j === k ? { ...x, rate: v ?? 0 } : x)) })} />
-              <span className="muted">{items[a.item]?.form !== 'solid' ? 'm³' : ''}/min</span>
+              <span className="muted">{unit(a.item)}</span>
               <button className="small ghost" onClick={() => update({ also: f.also.filter((_, j) => j !== k) })}>Remove</button>
               {a.item === f.target && <span className="warn-text small-text">same as the main product — ignored</span>}
             </div>

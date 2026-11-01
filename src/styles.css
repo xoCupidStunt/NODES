@@ -286,3 +286,6 @@ details.compare summary h2 { display: inline; }
 details.compare summary::before { content: '▸ '; color: var(--accent2); }
 details.compare[open] summary::before { content: '▾ '; }
 details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background: none; }
+.sch-disclaimer { background: #3a3218; border: 1px solid #6b5a1f; color: var(--warn); padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-size: 13px; }
+.sch-disclaimer b { color: var(--text); }
+@media print { .sch-disclaimer { color: #000; background: none; border-color: #999; } }

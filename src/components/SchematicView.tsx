@@ -110,6 +110,11 @@ export function SchematicView({ f }: { f: Factory }) {
       </div>
 
       <div className="sch-main">
+        {f.game && (
+          <div className="sch-disclaimer" role="note">
+            <b>For visual reference only.</b> This schematic is generated from the planner’s best layout for this factory’s output. It does not show what is actually built in your game — machine positions, belts and counts in your world will differ.
+          </div>
+        )}
         <div className="sch-summary">
           <b>{sch.width / F} × {sch.height / F} foundations</b> ({sch.width} × {sch.height} m) · {sch.floors.length} floor{sch.floors.length > 1 ? 's' : ''}
           {sch.floors.length > 1 && <> · storey heights {sch.floors.map((fl) => `${fl.storeyHeight} m`).join(' / ')}</>}

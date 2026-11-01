@@ -1,7 +1,6 @@
 import {
   extractors, isFluid, itemName, machines, nodes, perMinute, PURITY_MULT, recipes, WATER,
-  type Extractor, type Machine, type Recipe, type ResourceNode, type Transport,
-} from '../data/game';
+  type Extractor, type Machine, type Recipe, type ResourceNode, type Transport, isPower, POWER } from '../data/game';
 import { availableBelts, availablePipes, bestMiner, computeUnlocks, type Progress, type Unlocks } from './progression';
 import { recipePower, solvePlan, type SolveResult } from './solver';
 import type { Factory } from './types';
@@ -55,6 +54,9 @@ export interface InputLine {
   note?: string;
 }
 
+/** Power travels on power lines: no belt/pipe tier or lane limit. */
+const POWER_LINE = { id: 'power-line', name: 'Power line', rate: Infinity };
+
 export interface Plan {
   status: SolveResult['status'];
   rate: number;
@@ -67,7 +69,8 @@ export interface Plan {
   surplus: [string, number][];
   /** Other products made alongside the target. */
   also: [string, number][];
-  power: { machines: number; extraction: number; total: number };
+  /** MW used by machines and extractors, and MW made by generators in this plan. */
+  power: { machines: number; extraction: number; total: number; generated: number; net: number };
   machineArea: number;
   shardsUsed: number;
   unlocks: Unlocks;
@@ -117,7 +120,7 @@ export function supplyFor(f: Factory, u: Unlocks): Record<string, number> {
 
 export function allowedRecipes(f: Factory, u: Unlocks) {
   const ex = new Set(f.excluded);
-  return [...u.recipes].filter((id) => recipes[id] && !ex.has(id) && u.buildings.has(recipes[id].machine));
+  return [...u.recipes].filter((id) => recipes[id] && !recipes[id].noPlan && !ex.has(id) && u.buildings.has(recipes[id].machine));
 }
 
 export function buildPlan(f: Factory, progress: Progress): Plan {
@@ -198,6 +201,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   const belts = availableBelts(u);
   const pipes = availablePipes(u);
   const transportFor = (item: string, rate: number) => {
+    if (isPower(item)) return { transport: POWER_LINE, lanes: 1 };
     const list = isFluid(item) ? pipes : belts;
     const t = list.find((b) => b.rate >= rate - 1e-6) ?? list[list.length - 1];
     return { transport: t, lanes: Math.max(1, Math.ceil(rate / t.rate - 1e-6)) };
@@ -284,6 +288,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   }
 
   const machinePower = groups.reduce((a, g) => a + g.power, 0);
+  const generated = groups.reduce((a, g) => a + g.outputs.filter(([i]) => i === POWER).reduce((s, [, v]) => s + v, 0), 0);
   const extractionPower2 = extraction.reduce((a, e) => a + e.power, 0);
 
   if (solve.status === 'no-supply') {
@@ -304,7 +309,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     extraction,
     surplus: Object.entries(solve.surplus).sort((a, b) => b[1] - a[1]),
     also: solve.status === 'ok' ? (f.also ?? []).filter((a) => a.item !== f.target && a.rate > 0).map((a) => [a.item, a.rate] as [string, number]) : [],
-    power: { machines: machinePower, extraction: extractionPower2, total: machinePower + extractionPower2 },
+    power: { machines: machinePower, extraction: extractionPower2, total: machinePower + extractionPower2, generated, net: generated - machinePower - extractionPower2 },
     machineArea: groups.reduce((a, g) => a + g.machine.w * g.machine.l * g.count, 0),
     shardsUsed,
     unlocks: u,

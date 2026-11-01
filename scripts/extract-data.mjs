@@ -167,6 +167,54 @@ for (const r of byNative.FGRecipe) {
   recipes[rec.id] = rec;
 }
 
+// ---------- generators: fuel in, power (MW) out ----------
+// Power is modelled as an item, so a factory can have it as a product. Each generator + fuel pair is a
+// "recipe" running for 60 s, so amounts are per minute at 100 % clock.
+const POWER = 'Desc_Power_C';
+items[POWER] = { id: POWER, name: 'Power', form: 'power', sink: 0, raw: false };
+const energyOf = Object.fromEntries(all.filter((c) => num(c.mEnergyValue) > 0).map((c) => [c.ClassName, num(c.mEnergyValue)]));
+const r3 = (v) => Math.round(v * 1000) / 1000;
+for (const native of ['FGBuildableGeneratorFuel', 'FGBuildableGeneratorNuclear']) {
+  for (const b of byNative[native] || []) {
+    const mw = num(b.mPowerProduction);
+    if (!mw || !Array.isArray(b.mFuel)) continue;
+    machines[b.ClassName] = {
+      id: b.ClassName, name: b.mDisplayName, power: 0, exp: 1.321929, boostExp: 2, speed: 1, sloots: 0,
+      variable: false, generator: true, mw, ...footprint(b.mClearanceData),
+    };
+    for (const fuel of b.mFuel) {
+      const id = fuel.mFuelClass;
+      const energy = energyOf[id];
+      if (!items[id] || !energy) continue;
+      // Fluids: energy is per litre and our fluid amounts are m³.
+      const perMin = (mw * 60) / (isFluid(id) ? energy * 1000 : energy);
+      const ins = [[id, r3(perMin)]];
+      if (fuel.mSupplementalResourceClass && items[fuel.mSupplementalResourceClass]) {
+        ins.push([fuel.mSupplementalResourceClass, r3((mw * num(b.mSupplementalToPowerRatio) * 60) / 1000)]);
+      }
+      const outs = [[POWER, mw]];
+      if (fuel.mByproduct && items[fuel.mByproduct]) outs.push([fuel.mByproduct, r3(perMin * num(fuel.mByproductAmount))]);
+      recipes[`Power_${b.ClassName}_${id}`] = {
+        id: `Power_${b.ClassName}_${id}`, name: `${items[id].name} power`, alt: false, machine: b.ClassName,
+        time: 60, in: ins, out: outs, generator: true,
+      };
+    }
+  }
+}
+// Geothermal: no fuel; output depends on the geyser (average over its cycle). Only used to describe built factories.
+for (const b of byNative.FGBuildableGeneratorGeoThermal || []) {
+  machines[b.ClassName] = {
+    id: b.ClassName, name: b.mDisplayName, power: 0, exp: 1.321929, boostExp: 2, speed: 1, sloots: 0,
+    variable: false, generator: true, mw: num(b.mVariablePowerProductionFactor), ...footprint(b.mClearanceData),
+  };
+  for (const [purity, mult] of [['impure', 0.5], ['normal', 1], ['pure', 2]]) {
+    recipes[`Power_${b.ClassName}_${purity}`] = {
+      id: `Power_${b.ClassName}_${purity}`, name: `Geothermal power (${purity})`, alt: false, machine: b.ClassName,
+      time: 60, in: [], out: [[POWER, num(b.mVariablePowerProductionFactor) * mult]], generator: true, noPlan: true,
+    };
+  }
+}
+
 // ---------- schematics (milestones, MAM, hard-drive alternates) ----------
 const typeOf = {
   EST_Milestone: 'milestone', EST_MAM: 'mam', EST_Alternate: 'alt', EST_Tutorial: 'tutorial', EST_Custom: 'custom',

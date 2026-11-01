@@ -91,6 +91,22 @@ export function readSave(bytes: ArrayBuffer, fileName: string, onProgress?: (p: 
         net: '',
       });
     }
+    // Generators: recorded with a "GEN|<building>|<fuel or geyser>" recipe, resolved against game data later.
+    const gen = o.typePath.split('.').pop() ?? '';
+    if (t && gen.startsWith('Build_Generator') && !gen.includes('IntegratedBiomass')) {
+      const fuel = prop(o, 'mCurrentFuelClass')?.value?.pathName;
+      const geyser = prop(o, 'mExtractableResource')?.value?.pathName;
+      layout.machines.push({
+        id: o.instanceName,
+        recipe: `GEN|${gen}|${fuel ? tail(fuel) : geyser ? tail(geyser) : ''}`,
+        clock: prop(o, 'mCurrentPotential')?.value ?? 1,
+        boost: 0,
+        x: t.x,
+        y: t.y,
+        net: '',
+      });
+    }
+
     const station = prop(o, 'mStationName')?.value;
     const stationRef = prop(o, 'mStation')?.value?.pathName;
     if (station && stationRef) stationNames.push({ name: String(station.value ?? station), station: stationRef });

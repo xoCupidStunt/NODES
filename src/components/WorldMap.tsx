@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { itemColor, itemName, nodes } from '../data/game';
+import { itemColor, nodes } from '../data/game';
 import type { FoundFactory } from '../engine/gameFactories';
 import { nodeById } from '../engine/plan';
 import type { Factory } from '../engine/types';
@@ -7,7 +7,7 @@ import { useStore } from '../state';
 import { foundName, Makes, useFoundFactories } from './GameFactoriesCard';
 import { MapImageCard } from './mapImage';
 import { FULL_VIEW, MapBackdrop, PURITY_R, usePanZoom } from './mapKit';
-import { fmt, ItemTag, mw } from './ui';
+import { amountName, fmt, ItemTag, mw } from './ui';
 
 type Sel = { kind: 'found' | 'factory'; id: string } | null;
 
@@ -224,7 +224,7 @@ function FactoryDetails({ f, rate }: { f: Factory; rate: number | null }) {
       <h3>{f.name}</h3>
       <div><ItemTag item={f.target} rate={rate ?? undefined} />{rate === null && <span className="muted small-text"> (no plan yet)</span>}</div>
       {f.game && (
-        <div className="small-text muted">In game: {f.game.outputs.map(([i, v]) => `${fmt(v)} ${itemName(i)}`).join(', ')}</div>
+        <div className="small-text muted">In game: {f.game.outputs.map(([i, v]) => amountName(i, v)).join(', ')}</div>
       )}
       <div className="row gap wrap">
         <button className="small" onClick={() => dispatch({ type: 'select', id: f.id, view: f.game ? 'built' : 'results' })}>{f.game ? 'Overview' : 'Results'}</button>

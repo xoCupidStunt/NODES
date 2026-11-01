@@ -1,6 +1,6 @@
-import { isFluid, itemColor, itemName, MACHINE_COLORS } from '../data/game';
+import { isFluid, itemColor, itemName, MACHINE_COLORS, isPower } from '../data/game';
 import type { Plan } from '../engine/plan';
-import { fmt } from './ui';
+import { fmt, amountName, mw, rateText } from './ui';
 
 const BOX_W = 190;
 const BOX_H = 64;
@@ -16,12 +16,12 @@ export function FlowDiagram({ plan, target }: { plan: Plan; target: string }) {
   for (const x of plan.inputs) {
     if (boxes.some((b) => b.id === 'in:' + x.item)) continue;
     const rate = plan.solve.inputs[x.item] ?? x.rate;
-    boxes.push({ id: 'in:' + x.item, col: 0, title: itemName(x.item), sub: `${fmt(rate)}${isFluid(x.item) ? ' m³' : ''}/min in`, color: itemColor(x.item), x: 0, y: 0 });
+    boxes.push({ id: 'in:' + x.item, col: 0, title: itemName(x.item), sub: `${rateText(x.item, rate)} in`, color: itemColor(x.item), x: 0, y: 0 });
   }
   for (const g of plan.groups) {
     boxes.push({ id: g.id, col: g.depth + 1, title: `${g.count} × ${g.machine.name}`, sub: `${g.recipe.name} @ ${fmt(g.clock, 2)}%`, color: MACHINE_COLORS[g.machine.id] ?? '#888', x: 0, y: 0 });
   }
-  boxes.push({ id: 'out', col: maxDepth + 2, title: plan.also.length ? `${itemName(target)} + ${plan.also.length} more` : itemName(target), sub: plan.also.length ? `${fmt(plan.rate)}/min + ${plan.also.map(([i, v]) => `${fmt(v)} ${itemName(i)}`).join(', ')}`.slice(0, 34) : `${fmt(plan.rate)}/min product`, color: itemColor(target), x: 0, y: 0 });
+  boxes.push({ id: 'out', col: maxDepth + 2, title: plan.also.length ? `${itemName(target)} + ${plan.also.length} more` : itemName(target), sub: plan.also.length ? `${rateText(target, plan.rate)} + ${plan.also.map(([i, v]) => amountName(i, v)).join(', ')}`.slice(0, 34) : `${rateText(target, plan.rate)} product`, color: itemColor(target), x: 0, y: 0 });
   if (plan.surplus.length) boxes.push({ id: 'surplus', col: maxDepth + 2, title: 'Byproducts', sub: plan.surplus.map(([i]) => itemName(i)).join(', ').slice(0, 30), color: '#666', x: 0, y: 0 });
 
   const cols: Record<number, Box[]> = {};
@@ -73,7 +73,7 @@ export function FlowDiagram({ plan, target }: { plan: Plan; target: string }) {
           const dx = back ? 60 : (x2 - x1) / 2;
           const d = back ? `M${x1},${y1} C${x1 + dx},${y1} ${x2 + dx},${y2} ${x2},${y2}` : `M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}`;
           const fluid = isFluid(e.item);
-          const label = `${itemName(e.item)} ${fmt(e.rate, 1)}${fluid ? 'm³' : ''} · ${e.lanes > 1 ? `${e.lanes}× ` : ''}${e.tier}`;
+          const label = isPower(e.item) ? `${mw(e.rate)} to the grid` : `${itemName(e.item)} ${fmt(e.rate, 1)}${fluid ? 'm³' : ''} · ${e.lanes > 1 ? `${e.lanes}× ` : ''}${e.tier}`;
           return (
             <g key={k}>
               <path d={d} fill="none" stroke={itemColor(e.item)} strokeWidth={fluid ? 4 : 2.5} strokeDasharray={fluid ? '1 0' : undefined} markerEnd="url(#arrow)" opacity={0.85} />

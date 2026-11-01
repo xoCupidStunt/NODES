@@ -1,4 +1,4 @@
-import { FOUNDATION as F, isFluid, itemName, type Machine, type Recipe } from '../data/game';
+import { FOUNDATION as F, isFluid, isPower, itemName, POWER, type Machine, type Recipe } from '../data/game';
 import type { Plan } from './plan';
 import { availableBelts, availablePipes } from './progression';
 import type { SchematicOptions } from './types';
@@ -91,7 +91,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
 
   // ---- bus lanes: one per item that moves between rows or crosses the factory edge ----
   const laneItems: string[] = [];
-  const addLane = (i: string) => { if (!laneItems.includes(i)) laneItems.push(i); };
+  const addLane = (i: string) => { if (!laneItems.includes(i) && !isPower(i)) laneItems.push(i); };
   for (const [i] of plan.inputs.map((x) => [x.item])) addLane(i);
   for (const s of specs) { s.inItems.forEach(addLane); s.outItems.forEach(addLane); }
   const border = opt.border * F;
@@ -194,6 +194,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
       });
       // Output manifolds back to the bus.
       s.outItems.forEach((item, j) => {
+        if (isPower(item)) return; // generators feed the grid through power lines, not belts
         const ly = outY + 2 + j * STRIP_LANE;
         const rate = perMachine(r.out[j][1]) * s.count;
         const t = transportName(item, rate);
@@ -331,6 +332,8 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   for (const g of plan.groups) machineTotals[g.machine.name] = (machineTotals[g.machine.name] ?? 0) + g.count;
   for (const [name, count] of Object.entries(machineTotals)) bom.push({ name, count });
 
+  if (plan.power.generated > 0) notes.push(`Generators make ${Math.round(plan.power.generated)} MW — connect them to your grid with power lines (not drawn).`);
+  if (target === POWER && plan.power.generated > 0) notes.push('The product is power, so there is no output belt.');
   if (opt.logistics === 'underfloor') notes.push('Belts and pipes run on a service level 1 wall (4 m) below each floor and come up through Conveyor Floor Holes at every machine port.');
   if (opt.logistics === 'walls') notes.push('The bus runs in a walled service corridor; manifolds sit behind low walls with Conveyor Wall Holes at each machine.');
   if (lanes.some((l) => l.fluid) && pipe) notes.push(`Pipes shown as double lines (${pipe.name}, ${pipe.rate} m³/min max). Mind pump head lift on upper floors.`);

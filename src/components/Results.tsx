@@ -36,7 +36,8 @@ export function Results({ f }: { f: Factory }) {
       <div className="stats">
         <Stat label="Output" value={`${fmt(plan.rate)} ${unit(f.target)}`} sub={plan.also.length ? `${itemName(f.target)} + ${plan.also.length} more product${plan.also.length > 1 ? 's' : ''}` : itemName(f.target)} />
         <Stat label="Most possible" value={plan.maxRate === null ? 'unlimited' : `${fmt(plan.maxRate)} ${unit(f.target)}`} sub={plan.maxRate === null ? 'no resource cap' : 'with claimed resources'} />
-        <Stat label="Power" value={mw(plan.power.total)} sub={`${mw(plan.power.machines)} machines · ${mw(plan.power.extraction)} extraction`} />
+        <Stat label="Power used" value={mw(plan.power.total)} sub={`${mw(plan.power.machines)} machines · ${mw(plan.power.extraction)} extraction`} />
+        {plan.power.generated > 0 && <Stat label="Power made" value={mw(plan.power.generated)} sub={`net ${plan.power.net >= 0 ? '+' : ''}${mw(plan.power.net)} to the grid`} />}
         <Stat label="Machines" value={String(machineCount)} sub={`${plan.groups.length} recipes${plan.shardsUsed ? ` · ${plan.shardsUsed} shards` : ''}`} />
         <Stat label="Machine footprint" value={`${fmt(plan.machineArea / 64, 0)} fdn`} sub={`${fmt(plan.machineArea, 0)} m² before spacing`} />
       </div>

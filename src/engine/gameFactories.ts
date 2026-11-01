@@ -1,4 +1,4 @@
-import { itemName, items, machines, perMinute, RAW_ITEMS, recipes, WATER } from '../data/game';
+import { isPower, itemName, items, machines, perMinute, RAW_ITEMS, recipes, WATER } from '../data/game';
 import { clockPower, nodeById, nodeRate } from './plan';
 import type { Unlocks } from './progression';
 import type { SaveLayout } from './saveReader';
@@ -41,11 +41,23 @@ const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 
 interface Group { machines: Machine[]; nodes: string[]; origin?: FoundFactory['origin'] }
 
+/** The game-data recipe a saved machine runs. Generators are saved as "GEN|<building>|<fuel or geyser node>". */
+function resolveRecipe(m: Machine): string | null {
+  if (!m.recipe.startsWith('GEN|')) return recipes[m.recipe] ? m.recipe : null;
+  const [, gen, what] = m.recipe.split('|');
+  if (gen === 'Build_GeneratorGeoThermal_C') return `Power_${gen}_${nodeById[what]?.purity ?? 'normal'}`;
+  const id = `Power_${gen}_${what}`;
+  if (recipes[id]) return id;
+  return Object.keys(recipes).find((r) => r.startsWith(`Power_${gen}_`)) ?? null; // idle generator: assume its first fuel
+}
+
 /** Machines → groups: belt/pipe networks, then the person's splits, then their merges. */
 export function groupMachines(layout: SaveLayout, rules: GroupRules = noRules): Group[] {
   const byNet = new Map<string, Machine[]>();
-  for (const m of layout.machines) {
-    if (!recipes[m.recipe]) continue; // building recipes, FICSMAS, modded…
+  for (const raw of layout.machines) {
+    const recipe = resolveRecipe(raw);
+    if (!recipe) continue; // building recipes, FICSMAS, modded…
+    const m = recipe === raw.recipe ? raw : { ...raw, recipe };
     byNet.set(m.net, [...(byNet.get(m.net) ?? []), m]);
   }
   const nodesByNet = new Map<string, string[]>();
@@ -134,8 +146,9 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
   if (!outputs.length) return null;
 
   // Main product: the most processed output (deepest in this factory's chain), then the most valuable.
+  // Power is only the main product of a pure power plant.
   const depth = itemDepths(ms.map((m) => m.recipe));
-  outputs.sort((a, b) => (depth[b[0]] ?? 0) - (depth[a[0]] ?? 0) || b[1] * ((items[b[0]]?.sink ?? 0) || 1) - a[1] * ((items[a[0]]?.sink ?? 0) || 1));
+  outputs.sort((a, b) => Number(isPower(a[0])) - Number(isPower(b[0])) || (depth[b[0]] ?? 0) - (depth[a[0]] ?? 0) || b[1] * ((items[b[0]]?.sink ?? 0) || 1) - a[1] * ((items[a[0]]?.sink ?? 0) || 1));
   const [target, rate] = outputs[0];
 
   const nodeIds = g.nodes;
@@ -152,7 +165,7 @@ export function describeGroup(g: Group, labels: SaveLayout['labels'], u: Unlocks
   const cy = ms.reduce((a, m) => a + m.y, 0) / ms.length;
   return {
     key: ms.map((m) => m.id).sort()[0],
-    name: labelFor(labels, ms) ?? `${itemName(target)} factory`,
+    name: labelFor(labels, ms) ?? (isPower(target) ? powerPlantName(ms) : `${itemName(target)} factory`),
     location: { x: Math.round(cx), y: Math.round(cy) },
     target,
     rate: round(rate),
@@ -189,6 +202,17 @@ export function detectFactories(layout: SaveLayout, u: Unlocks, rules: GroupRule
     if (n > 1) f.name = `${f.name} ${n}`;
   }
   return found;
+}
+
+/** "Coal power plant", "Geothermal plant"… from the generators' most common fuel. */
+function powerPlantName(ms: Machine[]) {
+  const count = new Map<string, number>();
+  for (const m of ms) if (recipes[m.recipe]?.generator) count.set(m.recipe, (count.get(m.recipe) ?? 0) + 1);
+  const top = [...count].sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (!top) return 'Power plant';
+  if (top.includes('GeoThermal')) return 'Geothermal plant';
+  const fuel = recipes[top].in[0]?.[0];
+  return fuel ? `${itemName(fuel)} power plant` : 'Power plant';
 }
 
 /** How many processing steps it takes to make each item from this set of recipes. */

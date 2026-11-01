@@ -77,3 +77,18 @@ describe('several products', () => {
     expect(p.surplus.find(([i]) => i === 'Desc_Wire_C')).toBeUndefined();
   });
 });
+
+describe('power as a product', () => {
+  it('plans coal generators for a power target', () => {
+    const p = buildPlan(factory({ target: 'Desc_Power_C', rate: 750, excluded: [] }), progress(3));
+    expect(p.status).toBe('ok');
+    const gen = p.groups.find((g) => g.machine.id === 'Build_GeneratorCoal_C')!;
+    expect(gen.count).toBe(10);
+    expect(p.power.generated).toBeCloseTo(750, 1);
+    expect(p.solve.inputs['Desc_Coal_C']).toBeCloseTo(150, 1);
+    expect(p.solve.inputs['Desc_Water_C']).toBeCloseTo(450, 1);
+    expect(p.flows.filter((f) => f.item === 'Desc_Power_C').every((f) => f.lanes === 1)).toBe(true);
+    const sch = buildSchematic(p, defaultSchematic, 'Desc_Power_C');
+    expect(sch.notes.some((n) => n.includes('750 MW'))).toBe(true);
+  });
+});

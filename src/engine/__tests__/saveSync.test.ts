@@ -117,3 +117,16 @@ describe.skipIf(!realSave)('combine and separate with a real save', () => {
     expect(sep.factories.length).toBeGreaterThan(1);
   }, 60000);
 });
+
+describe.skipIf(!realSave)('generators in a real save', () => {
+  it('counts the power factories make', async () => {
+    const g = await import('../grouping');
+    const { noRules } = await import('../gameFactories');
+    const buf = readFileSync(realSave!);
+    const s = readSave(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), realSave!);
+    const found = g.foundOf({ game: gameSyncFromSave(s, null, 'file'), progress: progressFromSave(s), groupRules: noRules });
+    const power = found.reduce((a, ff) => a + (ff.built.outputs.find(([i]) => i === 'Desc_Power_C')?.[1] ?? 0), 0);
+    if (process.env.SHOW_FACTORIES) for (const ff of found.filter((x) => x.built.outputs.some(([i]) => i === 'Desc_Power_C'))) console.log(`POWER ${ff.name} | main ${ff.target} | ${ff.built.outputs.map(([i, v]) => `${v} ${i}`).join(', ')} | ${ff.machines} machines`);
+    expect(power).toBeGreaterThan(0);
+  }, 60000);
+});

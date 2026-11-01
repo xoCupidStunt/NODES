@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
-import { itemColor, items, type Item } from '../data/game';
+import { isFluid, isPower, itemColor, items, type Item } from '../data/game';
 
 export const fmt = (v: number, d = 2) => {
   if (!isFinite(v)) return '∞';
   const r = Math.round(v * 10 ** d) / 10 ** d;
   return r.toLocaleString(undefined, { maximumFractionDigits: d });
 };
-export const mw = (v: number) => (v >= 1000 ? `${fmt(v / 1000, 2)} GW` : `${fmt(v, 1)} MW`);
+export const mw = (v: number) => (Math.abs(v) >= 1000 ? `${fmt(v / 1000, 2)} GW` : `${fmt(v, 1)} MW`);
+/** "20/min", "45 m³/min" or "1,500 MW" depending on the item. */
+export const rateText = (item: string, v: number) => (isPower(item) ? mw(v) : `${fmt(v)}${isFluid(item) ? ' m³' : ''}/min`);
+/** "20 Iron Plate" or "1,500 MW power". */
+export const amountName = (item: string, v: number) => (isPower(item) ? `${mw(v)} power` : `${fmt(v)} ${items[item]?.name ?? item}`);
 
 export function Swatch({ item }: { item: string }) {
   return <span className="swatch" style={{ background: itemColor(item) }} aria-hidden />;
@@ -14,11 +18,11 @@ export function Swatch({ item }: { item: string }) {
 
 export function ItemTag({ item, rate, unitless }: { item: string; rate?: number; unitless?: boolean }) {
   const it = items[item];
-  const fluid = it && it.form !== 'solid';
+  const suffix = isPower(item) ? ' MW' : isFluid(item) ? ' m³' : '';
   return (
     <span className="item-tag">
       <Swatch item={item} />
-      {rate !== undefined && <b>{fmt(rate)}{unitless ? '' : fluid ? ' m³' : ''}</b>} {it?.name ?? item}
+      {rate !== undefined && <b>{fmt(rate)}{unitless ? '' : suffix}</b>} {it?.name ?? item}
     </span>
   );
 }
