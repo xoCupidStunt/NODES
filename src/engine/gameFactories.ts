@@ -237,7 +237,8 @@ export const madeInside = (built: Pick<BuiltInfo, 'groups'>) => new Set(built.gr
 /** Items made inside but used faster than they're made (per minute short, at the in-game clocks). */
 export function shortfallsOf(built: Pick<BuiltInfo, 'groups' | 'inputs'>): [string, number][] {
   const made = madeInside(built);
-  return built.inputs.filter(([i, v]) => made.has(i) && v > 0.01);
+  // Water comes from water extractors even when a machine here gives some off, so it's tracked on its own.
+  return built.inputs.filter(([i, v]) => i !== WATER && made.has(i) && v > 0.01);
 }
 
 /** Extractors summed by kind and resource, with output and power at their in-game clocks. */
