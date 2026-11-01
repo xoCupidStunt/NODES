@@ -6,8 +6,8 @@ import { useStore } from '../state';
 import { SeparatePanel } from './SeparatePanel';
 import { fmt } from './ui';
 
-/** Combine this factory with others, or separate it into several. */
-export function CombineSeparateCard({ f }: { f: Factory }) {
+/** Combine this factory with others, or (when `separate`) separate it into several. */
+export function CombineSeparateCard({ f, separate = true }: { f: Factory; separate?: boolean }) {
   const { state, dispatch } = useStore();
   const [picked, setPicked] = useState<string[]>([]);
   const others = state.factories.filter((o) => o.id !== f.id);
@@ -23,10 +23,10 @@ export function CombineSeparateCard({ f }: { f: Factory }) {
 
   return (
     <section className="card">
-      <h2>Combine or separate</h2>
-      <div className="two-col">
+      <h2>{separate ? 'Combine or separate' : 'Combine'}</h2>
+      <div className={separate ? 'two-col' : ''}>
         <div>
-          <h3>Combine with other factories</h3>
+          {separate && <h3>Combine with other factories</h3>}
           {others.length === 0 ? <p className="muted small-text">No other factories yet.</p> : (
             <>
               <div className="combine-list">
@@ -42,7 +42,7 @@ export function CombineSeparateCard({ f }: { f: Factory }) {
             </>
           )}
         </div>
-        <div>
+        {separate && <div>
           <h3>Separate</h3>
           {kind === 'game' && f.game && (
             <SeparatePanel
@@ -62,7 +62,7 @@ export function CombineSeparateCard({ f }: { f: Factory }) {
             </>
           )}
           {kind === null && <p className="muted small-text">This factory makes one product and isn’t linked to your game, so there’s nothing to separate. Add more products above, or add factories from your game on the Progress page.</p>}
-        </div>
+        </div>}
       </div>
     </section>
   );

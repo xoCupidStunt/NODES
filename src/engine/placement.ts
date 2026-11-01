@@ -1,4 +1,4 @@
-import { nodes, WATER, WORLD, type ResourceNode } from '../data/game';
+import { nodes, POWER, WATER, WORLD, type ResourceNode } from '../data/game';
 import { buildPlan, nodeRate, type Plan } from './plan';
 import { computeUnlocks, type Progress, type Unlocks } from './progression';
 import type { Factory } from './types';
@@ -151,11 +151,16 @@ export function helpfulFactories(f: Factory, factories: Factory[], plans: Record
   const out: { factory: Factory; item: string; rate: number; distance: number | null }[] = [];
   for (const o of factories) {
     if (o.id === f.id) continue;
-    const p = plans[o.id];
-    if (!p) continue;
     const offered: [string, number][] = [];
-    if (p.rate > 0) offered.push([o.target, p.rate]);
-    offered.push(...p.surplus);
+    if (o.game) {
+      // Built in game: what it really sends out (products and surplus), not a plan for it.
+      offered.push(...o.game.outputs.filter(([i]) => i !== POWER));
+    } else {
+      const p = plans[o.id];
+      if (!p) continue;
+      if (p.rate > 0) offered.push([o.target, p.rate]);
+      offered.push(...p.surplus);
+    }
     for (const [item, rate] of offered) {
       if (!neededItems.has(item)) continue;
       // Subtract what others already import from it.

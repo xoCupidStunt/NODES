@@ -61,7 +61,7 @@ export function LogisticsCard({ f }: { f: Factory }) {
                         </td>
                         <td>
                           {p.makers.length
-                            ? <span className="muted small-text">import it on Setup</span>
+                            ? <span className="muted small-text">import it on the Map step</span>
                             : <button className="small" onClick={() => makePart(p.item, p.rate)}>Create factory</button>}
                         </td>
                       </tr>

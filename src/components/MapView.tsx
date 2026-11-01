@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPE, type WheelEvent as RWE } from 'react';
 import { itemColor, itemName, nodes, RAW_ITEMS, WORLD, type ResourceNode } from '../data/game';
-import { nodeById, nodeRate } from '../engine/plan';
+import { buildPlan, nodeById, nodeRate } from '../engine/plan';
 import { claimedElsewhere, dist, helpfulFactories, nearestNodes, pickNodes, rawDemand, suggestLocation } from '../engine/placement';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { foundName, useFoundFactories } from './GameFactoriesCard';
 import { LogisticsCard } from './LogisticsCard';
 import { MapImageCard, MapImageLayer } from './mapImage';
-import { fmt, ItemTag } from './ui';
+import { fmt, ItemTag, NumberInput } from './ui';
 
 const SIZE = { w: WORLD.maxX - WORLD.minX, h: WORLD.maxY - WORLD.minY };
 const RESOURCE_ITEMS = [...new Set(nodes.map((n) => n.item))].filter((i) => RAW_ITEMS.includes(i));
@@ -65,11 +65,15 @@ export function MapView({ f }: { f: Factory }) {
     return s;
   }, [f.location, demand, avoid, mine]);
 
-  const chainItems = useMemo(() => {
-    const s = new Set<string>(Object.keys(demand));
-    for (const g of plan.groups) for (const [i] of g.inputs) s.add(i);
-    return s;
-  }, [plan, demand]);
+  // Everything the chain uses — from the recipes alone, so it works before any nodes are claimed.
+  // How much of each part the chain uses (imports count too), so an import takes no more than that.
+  const chainUse = useMemo(() => {
+    const m: Record<string, number> = {};
+    const chain = plan.groups.length ? plan : buildPlan({ ...f, unlimitedRaw: true }, state.progress);
+    for (const g of chain.groups) for (const [i, v] of g.inputs) m[i] = (m[i] ?? 0) + v;
+    return m;
+  }, [plan, f, state.progress]);
+  const chainItems = useMemo(() => new Set<string>([...Object.keys(demand), ...Object.keys(chainUse)]), [demand, chainUse]);
   const helpers = useMemo(() => helpfulFactories(f, state.factories, plans, chainItems), [f, state.factories, plans, chainItems]);
   const helperIds = new Set(helpers.map((h) => h.factory.id));
 
@@ -180,14 +184,34 @@ export function MapView({ f }: { f: Factory }) {
 
         <LogisticsCard f={f} />
 
-        {helpers.length > 0 && (
+        {(helpers.length > 0 || f.imports.length > 0) && (
           <section className="card">
             <h3>Factories with parts to spare</h3>
-            {helpers.slice(0, 6).map((hh) => (
-              <div key={hh.factory.id + hh.item} className="small-text">
-                <b>{hh.factory.name}</b>: <ItemTag item={hh.item} rate={hh.rate} />{hh.distance !== null && <span className="muted"> · {fmt(hh.distance, 0)} m</span>}
+            {f.imports.map((imp, k) => {
+              const src = state.factories.find((x) => x.id === imp.factoryId);
+              const d = src?.location && f.location ? dist(src.location, f.location) : null;
+              return (
+                <div key={imp.factoryId + imp.item} className="spare-row imported">
+                  <div className="small-text"><b>{src?.name ?? '?'}</b>{d !== null && <span className="muted"> · {fmt(d, 0)} m</span>}</div>
+                  <div className="row gap small-text">
+                    <ItemTag item={imp.item} />
+                    <NumberInput value={imp.rate} step={1} width={64} onChange={(v) => update({ imports: f.imports.map((x, j) => (j === k ? { ...x, rate: v ?? 0 } : x)) })} />/min
+                    <span className="ok-text">imported</span>
+                    <button className="small ghost" onClick={() => update({ imports: f.imports.filter((_, j) => j !== k) })}>Remove</button>
+                  </div>
+                </div>
+              );
+            })}
+            {helpers.filter((hh) => !f.imports.some((i) => i.factoryId === hh.factory.id && i.item === hh.item)).slice(0, 6).map((hh) => (
+              <div key={hh.factory.id + hh.item} className="spare-row">
+                <div className="small-text"><b>{hh.factory.name}</b>{hh.distance !== null && <span className="muted"> · {fmt(hh.distance, 0)} m</span>}</div>
+                <div className="row gap small-text">
+                  <ItemTag item={hh.item} rate={hh.rate} /> <span className="muted">spare{chainUse[hh.item] ? ` · uses ${fmt(chainUse[hh.item])}` : ''}</span>
+                  <button className="small" onClick={() => update({ imports: [...f.imports, { factoryId: hh.factory.id, item: hh.item, rate: Math.floor(Math.min(hh.rate, chainUse[hh.item] ?? hh.rate) * 100) / 100 }] })}>Import</button>
+                </div>
               </div>
             ))}
+            <p className="muted small-text">Imported parts aren’t made here, so the factory needs fewer machines and resources.</p>
           </section>
         )}
 

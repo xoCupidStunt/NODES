@@ -104,7 +104,7 @@ export function logisticsCheck(
         options: [
           `Plan a train or truck route between ${src.name} and this factory`,
           'Move this factory closer — use “Suggest placement” on the Map step, which counts imports',
-          `Make the ${itemName(imp.item)} here instead (remove the import on Setup)`,
+          `Make the ${itemName(imp.item)} here instead (remove the import on the Map step)`,
         ],
       });
     }

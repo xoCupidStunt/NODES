@@ -1,18 +1,11 @@
 import { useMemo } from 'react';
 import { itemName, producibleItems, RAW_ITEMS, recipes, unit } from '../data/game';
 import { allowedRecipes } from '../engine/plan';
-import { helpfulFactories, rawDemand } from '../engine/placement';
-import type { Mode } from '../engine/solver';
+import { rawDemand } from '../engine/placement';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { CombineSeparateCard } from './CombineSeparateCard';
 import { fmt, ItemPicker, ItemTag, NumberInput } from './ui';
-
-const MODES: { id: Mode; title: string; text: string }[] = [
-  { id: 'max', title: 'Maximum output', text: 'Make as much as the claimed resources allow, wasting as little as possible.' },
-  { id: 'power', title: 'Power efficiency', text: 'Hit the target rate with the lowest total power draw.' },
-  { id: 'area', title: 'Minimal area', text: 'Hit the target rate with the smallest machine footprint (overclocks if you have shards).' },
-];
 
 export function Setup({ f }: { f: Factory }) {
   const { state, dispatch, plans } = useStore();
@@ -32,7 +25,6 @@ export function Setup({ f }: { f: Factory }) {
     for (const g of plan.groups) for (const [i] of [...g.inputs, ...g.outputs]) s.add(i);
     return s;
   }, [plan]);
-  const helpers = useMemo(() => helpfulFactories(f, state.factories, plans, new Set([...chainItems, ...Object.keys(demand)])), [f, state.factories, plans, chainItems, demand]);
 
   // Recipe choices: for every item in the chain, every unlocked recipe that makes it.
   const recipeChoices = useMemo(() => {
@@ -51,7 +43,7 @@ export function Setup({ f }: { f: Factory }) {
         <div className="row gap wrap">
           <ItemPicker value={f.target} options={options} onChange={(target) => update({ target, excluded: [] })} />
           <label className="check">
-            <input type="checkbox" checked={f.rate === null} onChange={(e) => update({ rate: e.target.checked ? null : 10 })} /> As much as possible
+            <input type="checkbox" checked={f.rate === null} onChange={(e) => update(e.target.checked ? { rate: null, mode: 'max' } : { rate: 10, mode: 'power' })} /> As much as possible
           </label>
           {f.rate !== null && (
             <label>Target <NumberInput value={f.rate} step={0.5} onChange={(v) => update({ rate: v ?? 0 })} /> {unit(f.target)}</label>
@@ -78,17 +70,8 @@ export function Setup({ f }: { f: Factory }) {
       </section>
 
       <section className="card">
-        <h2>Build for</h2>
-        <div className="mode-cards">
-          {MODES.map((m) => (
-            <button key={m.id} className={`mode ${f.mode === m.id ? 'on' : ''}`} onClick={() => update({ mode: m.id })}>
-              <b>{m.title}</b>
-              <span>{m.text}</span>
-            </button>
-          ))}
-        </div>
-        {f.mode !== 'max' && f.rate === null && <p className="muted small-text">With “as much as possible”, the target is the most your resources allow; the mode then picks the cheapest way to get there.</p>}
-        <div className="row gap wrap" style={{ marginTop: 12 }}>
+        <h2>Overclock settings</h2>
+        <div className="row gap wrap">
           <label title="Upper clock limit for production machines">
             Max clock <NumberInput value={f.clockCap} min={1} step={10} width={70} onChange={(v) => update({ clockCap: Math.min(250, v ?? 100) })} /> %
           </label>
@@ -133,28 +116,6 @@ export function Setup({ f }: { f: Factory }) {
         <p className="muted small-text">Water is pumped on site with Water Extractors unless you claim water wells. “Needed for target” assumes the target rate{f.rate === null ? ' (10/min while maximising)' : ''}.</p>
       </section>
 
-      <section className="card">
-        <h2>Imports from other factories</h2>
-        {f.imports.length === 0 && helpers.length === 0 && <p className="muted">No other factory makes anything this chain uses. Plan more factories and they will show up here.</p>}
-        {f.imports.map((imp, k) => {
-          const src = state.factories.find((x) => x.id === imp.factoryId);
-          return (
-            <div key={k} className="row gap">
-              <ItemTag item={imp.item} /> from <b>{src?.name ?? '?'}</b>
-              <NumberInput value={imp.rate} step={1} onChange={(v) => update({ imports: f.imports.map((x, j) => (j === k ? { ...x, rate: v ?? 0 } : x)) })} />/min
-              <button className="small ghost" onClick={() => update({ imports: f.imports.filter((_, j) => j !== k) })}>Remove</button>
-            </div>
-          );
-        })}
-        {helpers.filter((h) => !f.imports.some((i) => i.factoryId === h.factory.id && i.item === h.item)).map((h) => (
-          <div key={h.factory.id + h.item} className="row gap helper">
-            <ItemTag item={h.item} rate={h.rate} /> spare at <b>{h.factory.name}</b>
-            {h.distance !== null && <span className="muted">{fmt(h.distance, 0)} m away</span>}
-            <button className="small" onClick={() => update({ imports: [...f.imports, { factoryId: h.factory.id, item: h.item, rate: Math.floor(h.rate * 100) / 100 }] })}>Import</button>
-          </div>
-        ))}
-      </section>
-
       {recipeChoices.length > 0 && (
         <section className="card">
           <h2>Recipes</h2>
@@ -180,7 +141,7 @@ export function Setup({ f }: { f: Factory }) {
         </section>
       )}
 
-      <CombineSeparateCard f={f} />
+      <CombineSeparateCard f={f} separate={!!f.game} />
 
       <div className="row gap">
         <button className="primary" onClick={() => dispatch({ type: 'view', view: f.location ? 'results' : 'map' })}>{f.location ? 'See results →' : 'Place on map →'}</button>

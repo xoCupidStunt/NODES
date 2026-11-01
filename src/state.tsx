@@ -109,13 +109,16 @@ function reducer(s: State, a: Action): State {
   }
 }
 
+/** Planned factories: "as much as possible" maximises; a target rate is hit with the least power. */
+const plannedMode = (f: Factory): Factory => (f.game ? f : { ...f, mode: f.rate === null ? 'max' : f.mode === 'max' ? 'power' : f.mode });
+
 export function newFactory(n: number): Factory {
   return {
     id: Math.random().toString(36).slice(2, 10),
     name: `Factory ${n}`,
     target: 'Desc_IronPlateReinforced_C',
     rate: 10,
-    mode: 'max',
+    mode: 'power',
     placement: 'suggested',
     location: null,
     nodes: [],
@@ -140,7 +143,7 @@ function load(): State {
       const s = JSON.parse(raw) as State;
       // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
-      s.factories = s.factories.map((f) => withGameSupply(withPowerProduct({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } })));
+      s.factories = s.factories.map((f) => withGameSupply(withPowerProduct(plannedMode({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }))));
       // Older saves stored found factories instead of the layout; resync to fill it in.
       if (s.game && !s.game.layout) s.game.layout = { machines: [], extractors: [], labels: [] };
       return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, groupRules: s.groupRules ?? noRules, sync: { ...defaultSync, ...s.sync } };

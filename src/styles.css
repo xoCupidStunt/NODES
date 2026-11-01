@@ -316,3 +316,8 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .part-table th { font-size: 11px; }
 .map-side .logistics .tip { flex-direction: column; gap: 4px; }
 .map-side .logistics .part-table th:nth-child(2), .map-side .logistics .part-table td:nth-child(2) { display: none; }
+
+/* Map step: spare parts and imports */
+.spare-row { padding: 6px 0; border-top: 1px solid var(--line); }
+.spare-row:first-of-type { border-top: 0; }
+.spare-row .row { align-items: center; margin-top: 2px; }
