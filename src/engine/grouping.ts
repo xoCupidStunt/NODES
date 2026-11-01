@@ -1,5 +1,5 @@
 // Combining and separating factories — both ones found in the save and ones in the planner.
-import { itemName } from '../data/game';
+import { itemName, POWER } from '../data/game';
 import { combineBuilt, detectFactories, factoryFromFound, matchFound, noRules, type FoundFactory, type GroupRules } from './gameFactories';
 import { computeUnlocks, type Progress } from './progression';
 import type { GameSync } from './saveSync';
@@ -24,10 +24,19 @@ export function refreshLinked(factories: Factory[], found: FoundFactory[]): Fact
   return factories.map((f) => {
     if (!f.game) return f;
     const list = byFactory.get(f.id);
-    return list?.length
-      ? { ...f, game: { ...combineBuilt(list.map((x) => x.built)), updatedAt: Date.now() } }
-      : { ...f, game: { ...f.game, missing: true } };
+    if (!list?.length) return { ...f, game: { ...f.game, missing: true } };
+    return withPowerProduct({ ...f, game: { ...combineBuilt(list.map((x) => x.built)), updatedAt: Date.now() } });
   });
+}
+
+/**
+ * Generators in a built factory make power: list it with the factory's other products.
+ * Adds it when missing (factories added before generators were tracked); never removes or changes a rate the person set.
+ */
+export function withPowerProduct(f: Factory): Factory {
+  const made = f.game?.outputs.find(([i]) => i === POWER)?.[1] ?? 0;
+  if (made <= 0 || f.target === POWER || (f.also ?? []).some((a) => a.item === POWER)) return f;
+  return { ...f, also: [...(f.also ?? []), { item: POWER, rate: Math.round(made * 100) / 100 }] };
 }
 
 // ---------- found factories (not added yet) ----------
