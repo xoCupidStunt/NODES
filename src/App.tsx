@@ -1,0 +1,117 @@
+import { useRef } from 'react';
+import { MapView } from './components/MapView';
+import { ProgressPanel } from './components/ProgressPanel';
+import { Results } from './components/Results';
+import { SchematicView } from './components/SchematicView';
+import { Setup } from './components/Setup';
+import { itemName } from './data/game';
+import { exportState, newFactory, parseImport, useStore, type View } from './state';
+import { fmt } from './components/ui';
+
+const TABS: { id: View; label: string }[] = [
+  { id: 'setup', label: '1 · Setup' },
+  { id: 'map', label: '2 · Map & placement' },
+  { id: 'results', label: '3 · Results' },
+  { id: 'schematic', label: '4 · Schematic' },
+];
+
+export default function App() {
+  const { state, dispatch, active, plans } = useStore();
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const doExport = () => {
+    const blob = new Blob([exportState(state)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ficsit-planner.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+  const doImport = async (file: File) => {
+    try {
+      const data = parseImport(await file.text());
+      dispatch({ type: 'load', state: { ...state, ...data, activeId: data.factories[0]?.id ?? null } });
+    } catch (e) {
+      alert(`Could not import: ${(e as Error).message}`);
+    }
+  };
+
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="logo">F</span>
+          <div>
+            <div className="brand-title">FICSIT Planner</div>
+            <div className="brand-sub">Factory design &amp; logistics</div>
+          </div>
+        </div>
+        <button className={`nav ${state.view === 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'view', view: 'progress' })}>
+          ⚙ Progress <span className="muted">Tier {state.progress.tier} · {state.progress.mam.length} MAM · {state.progress.alts.length} alts</span>
+        </button>
+        <div className="side-head">
+          <span>Factories</span>
+          <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>
+        </div>
+        <div className="factory-list">
+          {state.factories.length === 0 && <p className="muted pad">No factories yet. Click “+ New” to plan one.</p>}
+          {state.factories.map((f) => {
+            const p = plans[f.id];
+            return (
+              <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
+                <div className="fi-name">{f.name}</div>
+                <div className="muted">
+                  {p?.status === 'ok' ? `${fmt(p.rate)}/min ` : ''}{itemName(f.target)}
+                  {f.location ? ' · placed' : ''}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="side-foot">
+          <button className="small ghost" onClick={doExport}>Export</button>
+          <button className="small ghost" onClick={() => fileRef.current?.click()}>Import</button>
+          <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
+        </div>
+      </aside>
+      <main className="main">
+        {state.view === 'progress' || !active ? (
+          state.view === 'progress' ? <ProgressPanel /> : <Welcome />
+        ) : (
+          <>
+            <header className="top">
+              <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
+              <nav className="tabs">
+                {TABS.map((t) => (
+                  <button key={t.id} className={state.view === t.id ? 'on' : ''} onClick={() => dispatch({ type: 'view', view: t.id })}>{t.label}</button>
+                ))}
+              </nav>
+            </header>
+            <div className="content">
+              {state.view === 'setup' && <Setup f={active} />}
+              {state.view === 'map' && <MapView f={active} />}
+              {state.view === 'results' && <Results f={active} />}
+              {state.view === 'schematic' && <SchematicView f={active} />}
+            </div>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function Welcome() {
+  const { state, dispatch } = useStore();
+  return (
+    <div className="welcome">
+      <h1>Plan a factory</h1>
+      <ol>
+        <li>Set your <b>Progress</b> — tier, MAM research and hard-drive alternates — so only buildings and recipes you have are used.</li>
+        <li>Create a factory, pick the product and how to optimise it.</li>
+        <li>Place it on the map; the planner claims the nearest free resource nodes.</li>
+        <li>Read the equipment list and clock settings, then generate a to-scale build schematic.</li>
+      </ol>
+      <button className="primary" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New factory</button>
+    </div>
+  );
+}
