@@ -3,6 +3,7 @@ import { buildPlan, type Plan } from './engine/plan';
 import { defaultProgress, type Progress } from './engine/progression';
 import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
+import { matchFound } from './engine/gameFactories';
 
 export type View = 'progress' | 'setup' | 'results' | 'map' | 'schematic';
 
@@ -27,7 +28,8 @@ type Action =
   | { type: 'load'; state: State }
   | { type: 'gameSync'; progress: Progress; game: GameSync }
   | { type: 'syncPrefs'; patch: Partial<State['sync']> }
-  | { type: 'forgetGame' };
+  | { type: 'forgetGame' }
+  | { type: 'addMany'; factories: Factory[] };
 
 const KEY = 'ficsit-planner-v1';
 
@@ -53,8 +55,18 @@ function reducer(s: State, a: Action): State {
       return { ...s, view: a.view };
     case 'load':
       return a.state;
-    case 'gameSync':
-      return { ...s, progress: a.progress, game: a.game };
+    case 'gameSync': {
+      // Refresh the as-built data of factories added from the game.
+      const { byFactory } = matchFound(a.game.factories, s.factories);
+      const factories = s.factories.map((f) => {
+        if (!f.game) return f;
+        const ff = byFactory.get(f.id);
+        return ff ? { ...f, game: { ...ff.built, updatedAt: Date.now() } } : { ...f, game: { ...f.game, missing: true } };
+      });
+      return { ...s, progress: a.progress, game: a.game, factories };
+    }
+    case 'addMany':
+      return { ...s, factories: [...s.factories, ...a.factories] };
     case 'syncPrefs':
       return { ...s, sync: { ...s.sync, ...a.patch } };
     case 'forgetGame':
@@ -93,6 +105,7 @@ function load(): State {
       // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
       s.factories = s.factories.map((f) => ({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }));
+      if (s.game && !s.game.factories) s.game.factories = [];
       return { ...s, view: s.view ?? 'setup', game: s.game ?? null, sync: { ...defaultSync, ...s.sync } };
     }
   } catch {

@@ -200,3 +200,12 @@ input[type='checkbox'] { accent-color: var(--accent); }
 .ring.ingame { border-color: #38bdf8; border-radius: 2px; }
 .sync-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
 .sync-steps a { color: var(--accent2); }
+.ingame-hint { margin: 0 12px 8px; border-color: #38bdf8; color: #7dd3fc; background: #0c2230; text-align: left; }
+.game-factories td { vertical-align: middle; }
+.factory-item .ingame-tag { font-size: 10px; color: #7dd3fc; border: 1px solid #38bdf866; border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+.as-built { border-color: #38bdf855; }
+.as-built h2 { margin: 0; }
+.stats.compare { margin: 10px 0; }
+.as-built tr.plan-only td { background: #1c2a1f; }
+.as-built tr.built-only td:first-child { opacity: 0.8; }
+.as-built td.diff { color: var(--accent2); }

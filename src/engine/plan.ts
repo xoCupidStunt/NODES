@@ -147,6 +147,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   const order = Object.entries(solve.recipes).sort((a, b) => b[1] * machines[recipes[b[0]].machine].w - a[1] * machines[recipes[a[0]].machine].w);
   const groups: MachineGroup[] = [];
   for (const [rid, exact] of order) {
+    if (exact < 1e-3) continue; // solver rounding noise, not a real machine
     const r = recipes[rid];
     const m = machines[r.machine];
     let maxClock = Math.min(cap, 100);

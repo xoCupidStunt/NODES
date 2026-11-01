@@ -36,6 +36,30 @@ export const defaultSchematic: SchematicOptions = {
 
 export interface Import { factoryId: string; item: string; rate: number }
 
+/** Machines running one recipe in a factory found in the save. */
+export interface BuiltGroup {
+  recipe: string;
+  count: number;
+  /** [clock %, how many machines] */
+  clocks: [number, number][];
+  /** Machines with somersloops in them. */
+  boosted: number;
+}
+
+/** What a factory looks like in the game, as read from the save. */
+export interface BuiltInfo {
+  /** Save ids of its production machines, to recognise it in later saves. */
+  machineIds: string[];
+  groups: BuiltGroup[];
+  /** Net output and input per item, per minute, at the clocks set in game. */
+  outputs: [string, number][];
+  inputs: [string, number][];
+  power: number;
+  updatedAt: number;
+  /** True when the last synced save no longer has these machines. */
+  missing?: boolean;
+}
+
 export interface Factory {
   id: string;
   name: string;
@@ -59,4 +83,6 @@ export interface Factory {
   useShards: boolean;
   schematic: SchematicOptions;
   createdAt: number;
+  /** Set when the factory was added from the synced save. */
+  game?: BuiltInfo;
 }

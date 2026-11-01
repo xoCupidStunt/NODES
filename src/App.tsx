@@ -8,6 +8,7 @@ import { itemName } from './data/game';
 import { exportState, newFactory, parseImport, useStore, type View } from './state';
 import { fmt } from './components/ui';
 import { SyncStatus } from './components/SyncStatus';
+import { useNewGameFactories } from './components/GameFactoriesCard';
 
 const TABS: { id: View; label: string }[] = [
   { id: 'setup', label: '1 · Setup' },
@@ -19,6 +20,11 @@ const TABS: { id: View; label: string }[] = [
 export default function App() {
   const { state, dispatch, active, plans } = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
+  const newInGame = useNewGameFactories();
+  const showGameFactories = () => {
+    dispatch({ type: 'view', view: 'progress' });
+    setTimeout(() => document.getElementById('game-factories')?.scrollIntoView({ behavior: 'smooth' }), 50);
+  };
 
   const doExport = () => {
     const blob = new Blob([exportState(state)], { type: 'application/json' });
@@ -55,13 +61,16 @@ export default function App() {
           <span>Factories</span>
           <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>
         </div>
+        {newInGame > 0 && (
+          <button className="small ingame-hint" onClick={showGameFactories}>⇩ {newInGame} factor{newInGame > 1 ? 'ies' : 'y'} found in your game</button>
+        )}
         <div className="factory-list">
           {state.factories.length === 0 && <p className="muted pad">No factories yet. Click “+ New” to plan one.</p>}
           {state.factories.map((f) => {
             const p = plans[f.id];
             return (
               <button key={f.id} className={`factory-item ${f.id === state.activeId && state.view !== 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'select', id: f.id })}>
-                <div className="fi-name">{f.name}</div>
+                <div className="fi-name">{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
                 <div className="muted">
                   {p?.status === 'ok' ? `${fmt(p.rate)}/min ` : ''}{itemName(f.target)}
                   {f.location ? ' · placed' : ''}

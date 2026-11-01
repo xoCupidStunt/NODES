@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { itemName as shortName, recipes } from '../data/game';
 import { altSchematics, computeUnlocks, mamResearch, mamTrees, milestones, milestonesUpTo } from '../engine/progression';
 import { useStore } from '../state';
+import { GameFactoriesCard } from './GameFactoriesCard';
 import { SaveSyncCard } from './SaveSyncCard';
 import { NumberInput } from './ui';
 
@@ -31,6 +32,7 @@ export function ProgressPanel() {
       <p className="muted">The planner only uses machines, belts and recipes you have unlocked. Currently: {u.recipes.size} production recipes, {[...u.buildings].length} buildables{u.overclock ? ', overclocking' : ''}{u.amplify ? ', somersloop amplification' : ''}.</p>
 
       <SaveSyncCard />
+      <GameFactoriesCard />
 
       <section className="card">
         <h2>Current tier</h2>

@@ -3,6 +3,7 @@ import { itemName, MACHINE_COLORS, unit } from '../data/game';
 import { suggestions } from '../engine/suggest';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
+import { AsBuiltCard } from './AsBuiltCard';
 import { FlowDiagram } from './FlowDiagram';
 import { fmt, ItemTag, mw, Stat } from './ui';
 
@@ -40,6 +41,8 @@ export function Results({ f }: { f: Factory }) {
         <Stat label="Machine footprint" value={`${fmt(plan.machineArea / 64, 0)} fdn`} sub={`${fmt(plan.machineArea, 0)} m² before spacing`} />
       </div>
       {plan.warnings.map((w) => <p key={w} className="warn">{w}</p>)}
+
+      <AsBuiltCard f={f} plan={plan} />
 
       <section className="card">
         <div className="row between">

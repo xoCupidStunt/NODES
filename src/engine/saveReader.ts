@@ -13,6 +13,16 @@ export interface SaveSummary {
   occupied: string[];
   shards: { total: number; slotted: number };
   sloops: { total: number; slotted: number };
+  /** Built production, for finding existing factories. */
+  layout: SaveLayout;
+}
+
+/** Machines and extractors with the belt/pipe network they belong to. */
+export interface SaveLayout {
+  machines: { id: string; recipe: string; clock: number; boost: number; x: number; y: number; net: string }[];
+  extractors: { id: string; node: string; clock: number; net: string }[];
+  /** Map markers and train stations, to name factories. */
+  labels: { name: string; x: number; y: number; kind: 'marker' | 'station' }[];
 }
 
 const SHARD = 'Desc_CrystalShard_C';
@@ -42,13 +52,68 @@ export function readSave(bytes: ArrayBuffer, fileName: string, onProgress?: (p: 
   const shards = { total: 0, slotted: 0 };
   const sloops = { total: 0, slotted: 0 };
 
+  // Belt and pipe links: union every building with what it's connected to (hypertubes don't count).
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let r = x;
+    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+    let c = x;
+    while (c !== r) { const n = parent.get(c)!; parent.set(c, r); c = n; }
+    return r;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+  const owner = (path: string) => path.slice(0, path.lastIndexOf('.'));
+  const positions = new Map<string, { x: number; y: number }>();
+  const layout: SaveLayout = { machines: [], extractors: [], labels: [] };
+  const stationNames: { name: string; station: string }[] = [];
+
   for (const o of objects) {
+    const linked = prop(o, 'mConnectedComponent')?.value?.pathName;
+    if (typeof linked === 'string' && linked && !o.typePath.includes('Hyper')) {
+      union((o as { parentEntityName?: string }).parentEntityName || owner(o.instanceName), owner(linked));
+    }
+    const t = (o as { transform?: { translation: { x: number; y: number } } }).transform?.translation;
+    if (t && o.typePath.includes('TrainStation')) positions.set(o.instanceName, { x: t.x, y: t.y });
+
+    const recipe = prop(o, 'mCurrentRecipe')?.value?.pathName;
+    if (typeof recipe === 'string' && recipe && t) {
+      layout.machines.push({
+        id: o.instanceName,
+        recipe: tail(recipe),
+        clock: prop(o, 'mCurrentPotential')?.value ?? 1,
+        boost: prop(o, 'mCurrentProductionBoost')?.value ?? 0,
+        x: t.x,
+        y: t.y,
+        net: '',
+      });
+    }
+    const station = prop(o, 'mStationName')?.value;
+    const stationRef = prop(o, 'mStation')?.value?.pathName;
+    if (station && stationRef) stationNames.push({ name: String(station.value ?? station), station: stationRef });
+
+    if (o.typePath.includes('BP_MapManager')) {
+      for (const m of prop(o, 'mMapMarkers')?.values ?? []) {
+        const ps = m?.properties ?? {};
+        const loc = ps.Location?.value?.properties;
+        const name = ps.Name?.value;
+        if (String(ps.MapMarkerType?.value?.value ?? '').includes('Stamp')) continue; // icon stamps, not named places
+        if (loc &&typeof name === 'string' && name.trim()) layout.labels.push({ name: name.trim(), x: loc.X?.value ?? 0, y: loc.Y?.value ?? 0, kind: 'marker' });
+      }
+    }
+
     if (o.typePath.includes('BP_SchematicManager')) {
       for (const v of prop(o, 'mPurchasedSchematics')?.values ?? []) if (v?.pathName) purchased.add(tail(v.pathName));
     }
 
     const res = prop(o, 'mExtractableResource')?.value?.pathName;
-    if (typeof res === 'string' && res) occupied.add(tail(res));
+    if (typeof res === 'string' && res) {
+      occupied.add(tail(res));
+      layout.extractors.push({ id: o.instanceName, node: tail(res), clock: prop(o, 'mCurrentPotential')?.value ?? 1, net: '' });
+    }
 
     const stacks = prop(o, 'mInventoryStacks')?.values;
     if (Array.isArray(stacks)) {
@@ -80,6 +145,13 @@ export function readSave(bytes: ArrayBuffer, fileName: string, onProgress?: (p: 
     }
   }
 
+  for (const m of layout.machines) m.net = find(m.id);
+  for (const e of layout.extractors) e.net = find(e.id);
+  for (const s of stationNames) {
+    const at = positions.get(s.station);
+    if (at && s.name.trim()) layout.labels.push({ name: s.name.trim(), ...at, kind: 'station' });
+  }
+
   const h = save.header as { sessionName?: string; saveName?: string; saveDateTime?: string | number; playDurationSeconds?: number };
   return {
     sessionName: h.sessionName ?? sessionFromFile(fileName),
@@ -90,6 +162,7 @@ export function readSave(bytes: ArrayBuffer, fileName: string, onProgress?: (p: 
     occupied: [...occupied],
     shards,
     sloops,
+    layout,
   };
 }
 

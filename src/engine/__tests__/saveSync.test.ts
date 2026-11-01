@@ -20,6 +20,7 @@ describe('progress from a save', () => {
       sessionName: 's', saveName: 's', savedAt: null, playSeconds: 0, occupied: [],
       purchased: ['Schematic_1-1_C', 'Schematic_3-1_C', 'Research_Caterium_0_C', 'Schematic_Alternate_PureIronIngot_C', 'ResourceSink_Ladders_C'],
       shards: { total: 5, slotted: 2 }, sloops: { total: 1, slotted: 0 },
+      layout: { machines: [], extractors: [], labels: [] },
     });
     expect(p.tier).toBe(3);
     expect(p.milestones).toEqual(['Schematic_1-1_C', 'Schematic_3-1_C']);
@@ -52,5 +53,20 @@ describe.skipIf(!realSave)('real save', () => {
     const ids = new Set(nodes.map((n) => n.id));
     expect(g.occupied.length).toBeGreaterThan(0);
     expect(g.occupied.every((id) => ids.has(id))).toBe(true);
+  }, 60000);
+});
+
+describe.skipIf(!realSave)('factories in a real save', () => {
+  it('finds connected factories with a product and rate', async () => {
+    const { detectFactories } = await import('../gameFactories');
+    const { computeUnlocks } = await import('../progression');
+    const buf = readFileSync(realSave!);
+    const s = readSave(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), realSave!);
+    const found = detectFactories(s.layout, computeUnlocks(progressFromSave(s)));
+    if (process.env.SHOW_FACTORIES) {
+      for (const f of found) console.log(`${f.machines}\t${f.name}\t${f.target} ${f.rate}/min\tnodes ${f.nodes.length}\textra ${JSON.stringify(f.extraSupply)}\t${f.built.power} MW`);
+    }
+    expect(found.length).toBeGreaterThan(0);
+    for (const f of found) expect(f.rate).toBeGreaterThan(0);
   }, 60000);
 });
