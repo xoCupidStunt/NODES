@@ -234,21 +234,6 @@ export function builtSuggestions(
     });
   }
 
-  // 5. Somersloops: double the final machines' output with the same inputs.
-  if (u.amplify && progress.sloops > 0) {
-    for (const x of rows.filter((x) => x.outputs.some(([i]) => i === f.target) && (x.m?.sloots ?? 0) > 0)) {
-      const free = x.g.count - x.g.boosted;
-      const n = Math.min(free, Math.floor(progress.sloops / x.m!.sloots));
-      if (n < 1) continue;
-      const each = (x.outputs.find(([i]) => i === f.target)?.[1] ?? 0) / x.g.count;
-      tips.push({
-        kind: 'sloop', score: 45,
-        title: `Somersloops in ${n === free ? `the ${free}` : `${n} of the ${free}`} ${x.r.name} ${plural(x.m!.name, free)}`,
-        detail: `${n * x.m!.sloots} somersloops (${x.m!.sloots} each, you have ${progress.sloops}) double those machines' output: about +${rate(f.target, each * n)} ${itemName(f.target)} with no extra inputs. Their power goes ×4 (about +${mw((x.power / x.g.count) * n * 3)}).`,
-      });
-    }
-  }
-
   // 6. Raw resources mined but not used: underclock the extractors.
   for (const x of exs) {
     if (!x.item || x.item === WATER || x.rate <= 0) continue;

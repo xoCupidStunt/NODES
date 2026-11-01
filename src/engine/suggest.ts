@@ -103,23 +103,6 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     tips.push({ kind: 'clock', title: 'Use power shards to shrink the factory', detail: 'Overclocking is unlocked. Enter your shard count in Progress and turn on "Use power shards" — each machine can run up to 250%.', score: 25 });
   }
 
-  // 4. Somersloops.
-  if (u.amplify && progress.sloops > 0) {
-    const final = plan.groups.filter((g) => g.outputs.some(([i]) => i === f.target) && g.machine.sloots > 0);
-    for (const g of final) {
-      const need = g.machine.sloots * g.count;
-      if (availableOnly && need > progress.sloops) {
-        // Only as many machines as the player has somersloops for.
-        const n = Math.floor(progress.sloops / g.machine.sloots);
-        if (n < 1) continue;
-        const extra = (plan.rate / g.count) * n;
-        tips.push({ kind: 'sloop', title: `Somersloops in ${n} of the ${g.count} ${g.recipe.name} ${g.machine.name}s`, detail: `You have ${progress.sloops} somersloops — ${n * g.machine.sloots} of them (${g.machine.sloots} each) double those machines' output: about +${fmt(extra)}/min with the same inputs. Power for those machines goes ×4.`, score: 45 });
-        continue;
-      }
-      tips.push({ kind: 'sloop', title: `Somersloops in the ${g.recipe.name} ${g.machine.name}s`, detail: `${need} somersloops (${g.machine.sloots} each) double their output to ${fmt(plan.rate * 2)}/min with the same inputs. Power for those machines goes ×4.`, score: 45 });
-    }
-  }
-
   // 5. Logistics: next belt/pipe tier.
   const belts = availableBelts(u);
   const multi = plan.flows.filter((fl) => fl.lanes > 1);
