@@ -5,6 +5,7 @@ import { claimedElsewhere, dist, helpfulFactories, nearestNodes, pickNodes, rawD
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { foundName, useFoundFactories } from './GameFactoriesCard';
+import { LogisticsCard } from './LogisticsCard';
 import { MapImageCard, MapImageLayer } from './mapImage';
 import { fmt, ItemTag } from './ui';
 
@@ -176,6 +177,8 @@ export function MapView({ f }: { f: Factory }) {
           ))}
           <p className="muted small-text">Based on the target rate{f.rate === null ? ' (10/min when maximising)' : ''} and your best miner.</p>
         </section>
+
+        <LogisticsCard f={f} />
 
         {helpers.length > 0 && (
           <section className="card">

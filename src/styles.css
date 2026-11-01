@@ -310,3 +310,9 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .tip-options li { display: flex; gap: 8px; align-items: baseline; }
 .tip-options .opt-or { flex: none; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
 .tip-options + .tip-steps { margin-top: 6px; }
+
+/* Logistics check */
+.part-table { margin-top: 8px; }
+.part-table th { font-size: 11px; }
+.map-side .logistics .tip { flex-direction: column; gap: 4px; }
+.map-side .logistics .part-table th:nth-child(2), .map-side .logistics .part-table td:nth-child(2) { display: none; }

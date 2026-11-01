@@ -5,6 +5,7 @@ import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { AsBuiltCard } from './AsBuiltCard';
 import { FlowDiagram } from './FlowDiagram';
+import { LogisticsCard } from './LogisticsCard';
 import { fmt, ItemTag, mw, Stat } from './ui';
 
 const SOURCE: Record<string, string> = {
@@ -57,6 +58,8 @@ export function Results({ f }: { f: Factory }) {
         <Stat label="Machine footprint" value={`${fmt(plan.machineArea / 64, 0)} fdn`} sub={`${fmt(plan.machineArea, 0)} m² before spacing`} />
       </div>
       {plan.warnings.map((w) => <p key={w} className="warn">{w}</p>)}
+
+      <LogisticsCard f={f} />
 
       <AsBuiltCard f={f} plan={plan} />
 
