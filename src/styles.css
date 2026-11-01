@@ -244,3 +244,8 @@ input[type='checkbox'] { accent-color: var(--accent); }
 .game-factories .rename { min-width: 150px; }
 .table-scroll { overflow-x: auto; }
 .game-factories .makes { min-width: 200px; }
+.fit-row { display: grid; grid-template-columns: 78px 1fr 64px 18px; gap: 6px; align-items: center; font-size: 12px; margin: 6px 0; }
+.fit-row input[type='number'] { width: 64px; padding: 2px 4px; }
+.fit-row:has(> :nth-child(3):last-child) { grid-template-columns: 78px 1fr 40px; }
+details.fit { margin: 8px 0; }
+details.fit summary { cursor: pointer; color: var(--accent2); font-size: 13px; }

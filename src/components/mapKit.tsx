@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as RPE, type WheelEvent as RWE } from 'react';
 import { nodes, RAW_ITEMS, WORLD } from '../data/game';
-import { idbGet } from './idb';
+import { MapImageLayer } from './mapImage';
 
 export const SIZE = { w: WORLD.maxX - WORLD.minX, h: WORLD.maxY - WORLD.minY };
 export const RESOURCE_ITEMS = [...new Set(nodes.map((n) => n.item))].filter((i) => RAW_ITEMS.includes(i));
@@ -76,15 +76,8 @@ export function usePanZoom(initial: ViewBox = FULL_VIEW) {
   return { svgRef, vb, setVb, h, pxToWorld, hover, handlers, focus, wasClick, viewBox: `${vb.x} ${vb.y} ${vb.w} ${h}` };
 }
 
-/** The optional map image the person loaded on the factory map (shared). */
-export function useMapImage() {
-  const [bg, setBg] = useState<string | null>(null);
-  useEffect(() => { idbGet<string>('map-bg').then((v) => v && setBg(v)); }, []);
-  return bg;
-}
-
-/** World background: dark land, optional image, 1 km grid. */
-export function MapBackdrop({ pxToWorld, bg, bgOpacity = 0.7 }: { pxToWorld: number; bg?: string | null; bgOpacity?: number }) {
+/** World background: dark land, the optional map picture, 1 km grid. */
+export function MapBackdrop({ pxToWorld }: { pxToWorld: number }) {
   const gx: number[] = [];
   for (let g = Math.ceil(WORLD.minX / 100000) * 100000; g <= WORLD.maxX; g += 100000) gx.push(g);
   const gy: number[] = [];
@@ -92,7 +85,7 @@ export function MapBackdrop({ pxToWorld, bg, bgOpacity = 0.7 }: { pxToWorld: num
   return (
     <>
       <rect x={WORLD.minX} y={WORLD.minY} width={SIZE.w} height={SIZE.h} className="map-bg" />
-      {bg && <image href={bg} x={WORLD.minX} y={WORLD.minY} width={SIZE.w} height={SIZE.h} opacity={bgOpacity} preserveAspectRatio="none" />}
+      <MapImageLayer />
       {gx.map((g) => <line key={'x' + g} x1={g} x2={g} y1={WORLD.minY} y2={WORLD.maxY} className="map-grid" strokeWidth={pxToWorld} />)}
       {gy.map((g) => <line key={'y' + g} y1={g} y2={g} x1={WORLD.minX} x2={WORLD.maxX} className="map-grid" strokeWidth={pxToWorld} />)}
     </>

@@ -5,7 +5,8 @@ import { nodeById } from '../engine/plan';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { foundName, Makes, useFoundFactories } from './GameFactoriesCard';
-import { FULL_VIEW, MapBackdrop, PURITY_R, useMapImage, usePanZoom } from './mapKit';
+import { MapImageCard } from './mapImage';
+import { FULL_VIEW, MapBackdrop, PURITY_R, usePanZoom } from './mapKit';
 import { fmt, ItemTag, mw } from './ui';
 
 type Sel = { kind: 'found' | 'factory'; id: string } | null;
@@ -15,7 +16,6 @@ export function WorldMap() {
   const { state, dispatch, plans } = useStore();
   const { found, byFound, add, small } = useFoundFactories();
   const map = usePanZoom(FULL_VIEW);
-  const bg = useMapImage();
   const [sel, setSel] = useState<Sel>(state.mapFocus);
   const [showNodes, setShowNodes] = useState(true);
   const [showMined, setShowMined] = useState(true);
@@ -111,15 +111,19 @@ export function WorldMap() {
             {state.game && <label className="check"><input type="checkbox" checked={showFound} onChange={(e) => setShowFound(e.target.checked)} /> Game factories not added yet</label>}
             {state.game && <label className="check"><input type="checkbox" checked={showSmall} onChange={(e) => setShowSmall(e.target.checked)} /> Include small setups (1–2 machines)</label>}
             <div className="legend small-text">
-              <div><span className="wmark planner" /> factory in the planner · <span className="wmark linked" /> linked to your game</div>
-              {state.game && <div><span className="wmark found" /> built in game, not added · <span className="ring ingame" /> node mined in game</div>}
+              <div><span className="wmark planner" /> factory in the planner</div>
+              <div><span className="wmark linked" /> linked to your game</div>
+              {state.game && <div><span className="wmark found" /> built in game, not added</div>}
+              {state.game && <div><span className="ring ingame" /> node mined in game</div>}
             </div>
           </section>
+
+          <MapImageCard />
         </div>
 
         <div className="map-wrap">
           <svg ref={map.svgRef} className="map" viewBox={map.viewBox} {...map.handlers} onPointerUp={(e) => { if (map.wasClick() && e.target === e.currentTarget) setSel(null); map.handlers.onPointerUp(); }}>
-            <MapBackdrop pxToWorld={px} bg={bg} />
+            <MapBackdrop pxToWorld={px} />
 
             {showNodes && nodes.map((n) => {
               const mined = inGame.has(n.id);

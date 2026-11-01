@@ -5,7 +5,7 @@ import { claimedElsewhere, dist, helpfulFactories, nearestNodes, pickNodes, rawD
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { foundName, useFoundFactories } from './GameFactoriesCard';
-import { idbGet, idbSet } from './idb';
+import { MapImageCard, MapImageLayer } from './mapImage';
 import { fmt, ItemTag } from './ui';
 
 const SIZE = { w: WORLD.maxX - WORLD.minX, h: WORLD.maxY - WORLD.minY };
@@ -29,12 +29,9 @@ export function MapView({ f }: { f: Factory }) {
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null);
   const [hoverNode, setHoverNode] = useState<ResourceNode | null>(null);
   const [filter, setFilter] = useState<'needed' | 'all' | Set<string>>('needed');
-  const [bg, setBg] = useState<string | null>(null);
-  const [bgOpacity, setBgOpacity] = useState(0.7);
   const [busy, setBusy] = useState(false);
   const drag = useRef<{ sx: number; sy: number; vb: ViewBox; moved: boolean } | null>(null);
 
-  useEffect(() => { idbGet<string>('map-bg').then((v) => v && setBg(v)); }, []);
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
@@ -143,11 +140,6 @@ export function MapView({ f }: { f: Factory }) {
     update({ nodes: [...new Set([...f.nodes.filter((id) => !demand[nodeById[id]?.item] ), ...p.picked.map((n) => n.id)])] });
   };
 
-  const loadBg = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => { setBg(reader.result as string); idbSet('map-bg', reader.result); };
-    reader.readAsDataURL(file);
-  };
 
   const nodeR = Math.max(900, 6 * pxToWorld);
   const grid: number[] = [];
@@ -222,17 +214,7 @@ export function MapView({ f }: { f: Factory }) {
           </div>
         </section>
 
-        <section className="card">
-          <h3>Map image</h3>
-          <p className="muted small-text">Optional: load a picture of the world map (e.g. a screenshot of the in-game map, square, north up) to see terrain under the nodes.</p>
-          <input type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && loadBg(e.target.files[0])} />
-          {bg && (
-            <div className="row gap">
-              <label>Opacity <input type="range" min={0.1} max={1} step={0.05} value={bgOpacity} onChange={(e) => setBgOpacity(Number(e.target.value))} /></label>
-              <button className="small ghost" onClick={() => { setBg(null); idbSet('map-bg', undefined); }}>Remove</button>
-            </div>
-          )}
-        </section>
+        <MapImageCard />
       </div>
 
       <div className="map-wrap">
@@ -247,7 +229,7 @@ export function MapView({ f }: { f: Factory }) {
           onPointerLeave={() => { setHover(null); drag.current = null; }}
         >
           <rect x={WORLD.minX} y={WORLD.minY} width={SIZE.w} height={SIZE.h} className="map-bg" />
-          {bg && <image href={bg} x={WORLD.minX} y={WORLD.minY} width={SIZE.w} height={SIZE.h} opacity={bgOpacity} preserveAspectRatio="none" />}
+          <MapImageLayer />
           {grid.map((g) => <line key={'x' + g} x1={g} x2={g} y1={WORLD.minY} y2={WORLD.maxY} className="map-grid" strokeWidth={pxToWorld} />)}
           {gridY.map((g) => <line key={'y' + g} y1={g} y2={g} x1={WORLD.minX} x2={WORLD.maxX} className="map-grid" strokeWidth={pxToWorld} />)}
 
