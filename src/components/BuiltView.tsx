@@ -64,9 +64,7 @@ export function BuiltView({ f }: { f: Factory }) {
   const bestMachines = bestOk ? best.groups.reduce((a, x) => a + x.count, 0) : 0;
 
   const advice = useMemo(
-    () => (deferredMax.status === 'ok' || best.status === 'ok'
-      ? builtSuggestions(f, deferredMax, best, state.progress, state.factories, state.game?.occupied)
-      : { tips: [], notes: [] }),
+    () => builtSuggestions(f, deferredMax, best, state.progress, state.factories, state.game?.occupied),
     [f, deferredMax, best, state.progress, state.factories, state.game?.occupied],
   );
   const tips = advice.tips;
@@ -237,7 +235,7 @@ export function BuiltView({ f }: { f: Factory }) {
             {tips.map((t, k) => (
               <div key={k} className={`tip ${t.kind}`}>
                 <div className="tip-kind">{t.kind}</div>
-                <div><b>{t.title}</b><div className="muted">{t.detail}</div></div>
+                <div><b>{t.title}</b><div className="muted">{t.detail}</div>{t.steps && t.steps.length > 0 && <ol className="tip-steps">{t.steps.map((s, j) => <li key={j}>{s}</li>)}</ol>}</div>
               </div>
             ))}
           </div>

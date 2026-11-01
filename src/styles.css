@@ -297,3 +297,8 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .combine-bar select { width: 100%; }
 .factory-item.picked { background: #3a2a1c; border-color: var(--accent); }
 .fi-check { margin: 0 6px 0 0; vertical-align: middle; pointer-events: none; }
+
+/* Numbered steps under a suggestion */
+.tip-steps { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+.tip-steps li { margin: 2px 0; }
+.tip-steps li::marker { color: var(--accent, #f39c12); font-weight: 600; }

@@ -128,6 +128,24 @@ export function builtSuggestions(
   const exs = g.extractors ?? [];
   const recycled = rows.filter((x) => x.outputs.some(([i]) => i === WATER));
 
+  // A step that sets a recipe to `eq` machines' worth at 100%: new clocks on what's there, or more machines.
+  // Clocks only go as high as that recipe already runs in game (or 100% for new ones), so no new shards needed.
+  const setTo = (id: string, eq: number) => {
+    const r = recipes[id];
+    const m = machines[r.machine]?.name ?? 'machine';
+    const row = rows.find((x) => x.r.id === id);
+    const have = row?.g.count ?? 0;
+    const cap = Math.max(100, ...(row?.g.clocks.map(([c]) => c) ?? [100]));
+    if (eq < 0.005) return `Remove ${the(have, r.name, m)}`;
+    if (have && (eq * 100) / have <= cap + 0.01) return `Set ${the(have, r.name, m)} to ${fmt((eq * 100) / have)}%`;
+    const n = Math.ceil((eq * 100) / cap - 1e-9);
+    return have
+      ? `Add ${n - have} ${plural(m, n - have)} on ${r.name} and set all ${n} to ${fmt((eq * 100) / n)}%`
+      : `Build ${n} ${plural(m, n)} on ${r.name} at ${fmt((eq * 100) / n)}%`;
+  };
+  const the = (n: number, what: string, m: string) => (n === 1 ? `the ${what} ${m}` : `the ${n} ${what} ${plural(m, n)}`);
+  const exName = (x: { type: string; count: number }) => plural(extractors[x.type]?.name ?? 'extractor', x.count);
+
   // 1. A better layout for exactly what it gets now.
   const fMax = builtMaxFactory(f);
   const possible = maxPlan.status === 'ok' ? maxPlan.rate : null;
@@ -138,26 +156,23 @@ export function builtSuggestions(
       ? (maxPlan.solve.inputs[i] ?? 0) > (need[i] ?? 0) + 0.5
       : (maxPlan.surplus.find(([s]) => s === i)?.[1] ?? 0) < spare[i] - 0.5))
     : [];
-  const useIt = (i: string) => (usedByMax.includes(i) ? ` Or put it to work — see “Up to ${rate(f.target, possible!)}” above.` : '');
+  const upTo = possible !== null ? `“Up to ${rate(f.target, possible)}”` : '';
   if (better) {
-    // What changes, recipe by recipe, in machines' worth at 100% clock.
     const now: Record<string, number> = {};
     for (const x of rows) now[x.r.id] = (now[x.r.id] ?? 0) + x.speed;
     const then: Record<string, number> = {};
     for (const x of maxPlan.groups) then[x.recipe.id] = (then[x.recipe.id] ?? 0) + x.exact;
     const diff = [...new Set([...Object.keys(now), ...Object.keys(then)])]
       .map((id) => [id, (then[id] ?? 0) - (now[id] ?? 0)] as const)
-      .filter(([, d]) => Math.abs(d) > 0.05);
-    const more = diff.filter(([, d]) => d > 0).sort((a, b) => b[1] - a[1]).map(([id, d]) => {
-      const r = recipes[id];
-      const m = machines[r.machine]?.name ?? 'machine';
-      return `${fmt(d, 2)} more ${plural(m, d > 1 ? 2 : 1)} at 100% on ${r.name}`;
-    });
-    const less = diff.filter(([, d]) => d < 0).map(([id]) => recipes[id].name);
+      .filter(([, d]) => Math.abs(d) > 0.05)
+      .sort((a, b) => b[1] - a[1]); // more first, then less
     tips.push({
       kind: 'resource', score: 80,
       title: `Up to ${rate(f.target, possible)} of ${itemName(f.target)} from the same inputs (+${fmt(((possible - builtOut) / Math.max(builtOut, 1e-9)) * 100, 0)}%)`,
-      detail: `${usedByMax.length ? `It isn't using ${list(usedByMax.map((i) => `${rate(i, spare[i])} spare ${itemName(i)}`))}. ` : 'A different mix of machines gets more from what its extractors deliver now. '}Add ${list(more)}${less.length ? `, and slow ${list(less)} a little` : ''}. Its other products stay the same; “Plan changes” → Results shows the exact machines and clocks.`,
+      detail: usedByMax.length
+        ? `It isn't using ${list(usedByMax.map((i) => `${rate(i, spare[i])} ${itemName(i)}`))}. Re-balancing the machines it has puts that to work.`
+        : 'Re-balancing the machines it has gets more out of what its extractors deliver now.',
+      steps: diff.map(([id]) => setTo(id, then[id] ?? 0)),
     });
   }
 
@@ -187,20 +202,21 @@ export function builtSuggestions(
         if (c < top - 0.5) {
           const add = x.rate * (top / c - 1);
           const gain = gainWith(item, add);
-          if (gain > 0.05) ways.push(`raise its ${plural(extractors[x.type]?.name ?? 'extractor', x.count)} from ${fmt(c)}% to ${top}%${top > 100 ? ' (needs power shards)' : ''} for +${rate(item, add)}, about +${rate(f.target, gain)} ${itemName(f.target)}`);
+          if (gain > 0.05) ways.push(`Set ${x.count === 1 ? 'the' : `the ${x.count}`} ${exName(x)} on ${itemName(item)} to ${top}%${top > 100 ? ' (uses power shards)' : ''}: +${rate(item, add)}, about +${rate(f.target, gain)} ${itemName(f.target)}`);
         }
       }
       if (f.location) {
         const near = nearestNodes(item, f.location, taken, 1)[0];
         const add = near ? nodeRate(near.node, u) : 0;
         const gain = add ? gainWith(item, add) : 0;
-        if (near && gain > 0.05) ways.push(`tap the nearest free node (${near.node.purity}, ${fmt(near.d, 0)} m away, +${rate(item, add)} at 100%) for about +${rate(f.target, gain)} ${itemName(f.target)}`);
+        if (near && gain > 0.05) ways.push(`${ways.length ? 'Or mine' : 'Mine'} the nearest free ${itemName(item)} node (${near.node.purity}, ${fmt(near.d, 0)} m away): +${rate(item, add)}, about +${rate(f.target, gain)} ${itemName(f.target)}`);
       }
       if (!ways.length) continue;
       tips.push({
         kind: 'resource', score: 85,
         title: `${itemName(item)} is what limits output`,
-        detail: `Its extractors deliver ${rate(item, have)} and all of it is used. More ${itemName(item)} alone raises output: ${list(ways)}. The machines that use it need to grow to match.`,
+        detail: `All ${rate(item, have)} its extractors deliver is used, and more of it alone raises output.`,
+        steps: [...ways, 'Then add machines downstream to use it — “Plan changes” → Results shows how many'],
       });
     }
     // Fully used as built, but more of just one wouldn't help.
@@ -212,32 +228,47 @@ export function builtSuggestions(
   }
 
   // 3. Shortfalls: made here but used faster than made. Only suggest making more when its inputs are spare.
-  for (const [item, short] of shortfallsOf(g).slice(0, 5)) {
+  // A machine short of two inputs is held back by the scarcer one, so that's the clock to set it to.
+  const shortList = shortfallsOf(g).slice(0, 5);
+  const binding: Record<string, { item: string; factor: number }> = {};
+  for (const [item, short] of shortList) {
+    const madeNow = rows.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
+    const factor = madeNow / (madeNow + short);
+    for (const x of rows.filter((y) => y.inputs.some(([i]) => i === item))) {
+      if (!binding[x.r.id] || factor < binding[x.r.id].factor) binding[x.r.id] = { item, factor };
+    }
+  }
+  for (const [item, short] of shortList) {
     const makers = rows.filter((x) => x.outputs.some(([i]) => i === item));
     const users = rows.filter((x) => x.inputs.some(([i]) => i === item));
     if (!makers.length || !users.length) continue;
     const m = makers[0];
     const per = perMinute(m.r, m.r.out.find(([i]) => i === item)![1]);
     const madeNow = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
-    const usersText = users.map((x) => `${x.g.count} × ${x.r.name}`).join(', ');
     const miss = missingFor(m.r, short / per, spare);
-    let fix: string;
+    const base = `Made at ${rate(item, madeNow)}, but the machines using it want ${rate(item, madeNow + short)}.`;
     if (!miss.length) {
-      const headroom = Math.max(0, m.g.count - m.speed) * per; // up to 100% without new machines
-      if (headroom >= short - 0.01) fix = `Raise the ${m.r.name} ${plural(m.m?.name ?? 'machine', m.g.count)} to ${fmt(m.avgClock + (short / per / m.g.count) * 100)}% — the inputs for that are spare.`;
-      else {
-        const n = Math.ceil((short - headroom) / per - 1e-9);
-        fix = `Add ${n} ${plural(m.m?.name ?? 'machine', n)} on ${m.r.name}${m.avgClock < 99.5 ? ' (after raising the others to 100%)' : ''} — the inputs for that are spare.`;
-      }
+      tips.push({
+        kind: 'resource', score: 70,
+        title: `${itemName(item)} is short by ${rate(item, short)}`,
+        detail: `${base} The inputs to make more are spare.`,
+        steps: [setTo(m.r.id, m.speed + short / per)],
+      });
     } else {
       const factor = madeNow / (madeNow + short);
-      fix = `There isn't spare ${list(miss.map(([i, v]) => `${itemName(i)} (needs ${rate(i, v)} more)`))} to make more, so match the users instead: ${users.map((x) => `${x.r.name} to about ${fmt(x.avgClock * factor)}%`).join(', ')}.`;
+      tips.push({
+        kind: 'clock', score: 40,
+        title: `${itemName(item)} is short by ${rate(item, short)}`,
+        detail: `${base} There's no spare ${list(miss.map(([i]) => itemName(i)))} to make more, so those machines already wait on it — slowing them to match saves power.`,
+        steps: users.map((x) => {
+          const b = binding[x.r.id];
+          const who = the(x.g.count, x.r.name, x.m?.name ?? 'machine');
+          return b && b.item !== item
+            ? `${who[0].toUpperCase()}${who.slice(1)} ${x.g.count === 1 ? 'is' : 'are'} held back more by ${itemName(b.item)} — see that tip`
+            : `Set ${who} to ${fmt(x.avgClock * factor)}%`;
+        }),
+      });
     }
-    tips.push({
-      kind: 'resource', score: 70,
-      title: `${itemName(item)} is short by ${rate(item, short)}`,
-      detail: `It's made here (${rate(item, madeNow)} from ${makers.map((x) => `${x.g.count} × ${x.r.name}`).join(', ')}), but ${usersText} ${users.length === 1 && users[0].g.count === 1 ? 'wants' : 'want'} ${rate(item, madeNow + short)}. ${fix}`,
-    });
   }
 
   // 4. Machines making a product below 100% — only when the inputs to speed them up are spare.
@@ -246,15 +277,13 @@ export function builtSuggestions(
   if (canRaise.length) {
     tips.push({
       kind: 'clock', score: 60,
-      title: `${list(canRaise.map((x) => `${x.r.name}`))} can run at 100%`,
-      detail: `${canRaise.map((x) => {
-        const main = x.outputs[0];
-        return `${x.g.count} × ${x.r.name} at ${fmt(x.avgClock)}% → 100% gives +${rate(main[0], main[1] * (100 / x.avgClock - 1))} ${itemName(main[0])}`;
-      }).join('; ')}. The extra inputs for that are already spare.`,
+      title: `${list(canRaise.map((x) => x.r.name))} can run at 100%`,
+      detail: `The extra inputs are already spare, so this is free output: ${canRaise.map((x) => `+${rate(x.outputs[0][0], x.outputs[0][1] * (100 / x.avgClock - 1))} ${itemName(x.outputs[0][0])}`).join(', ')}.`,
+      steps: canRaise.map((x) => `Set ${the(x.g.count, x.r.name, x.m?.name ?? 'machine')} to 100%`),
     });
   }
 
-  // 6. Raw resources mined but not used: underclock the extractors.
+  // 5. Raw resources mined but not used: underclock the extractors.
   for (const x of exs) {
     if (!x.item || x.item === WATER || x.rate <= 0) continue;
     const used = need[x.item] ?? 0;
@@ -264,24 +293,27 @@ export function builtSuggestions(
     const left = have - used;
     if (left < 1 || used <= 0) continue;
     const c = exClock(allOfItem.flatMap((y) => y.clocks));
-    const to = (c * used) / have;
     const pw = allOfItem.reduce((a, y) => a + y.power, 0);
     const saved = pw - pw * Math.pow(used / have, 1.321929);
+    const count = allOfItem.reduce((a, y) => a + y.count, 0);
     tips.push({
       kind: 'clock', score: 25,
       title: `${rate(x.item, left)} ${itemName(x.item)} is mined but not used`,
-      detail: `Its extractors deliver ${rate(x.item, have)} and the machines use ${rate(x.item, used)}. Underclock them to about ${fmt(to)}% to save ${mw(saved)}.${useIt(x.item) || ' Or keep it if you plan to grow the factory.'}`,
+      detail: `Extractors deliver ${rate(x.item, have)}; the machines use ${rate(x.item, used)}.`,
+      steps: [
+        `Set ${count === 1 ? 'the' : `the ${count}`} ${exName({ type: x.type, count })} on ${itemName(x.item)} to ${fmt((c * used) / have)}% (saves ${mw(saved)})`,
+        usedByMax.includes(x.item) ? `Or keep it and put it to work — see ${upTo}` : 'Or keep it if you plan to grow the factory',
+      ],
     });
   }
 
-  // 7. Water: what the machines need vs. what its water extractors pump.
+  // 6. Water: what the machines need vs. what its water extractors pump.
   const waterNeed = need[WATER] ?? 0;
   const pumps = exs.filter((x) => x.item === WATER);
   const pumpCount = pumps.reduce((a, x) => a + x.count, 0);
   const waterHave = pumps.reduce((a, x) => a + x.rate, 0);
-  const loop = recycled.length
-    ? ` This counts the ${rate(WATER, recycled.reduce((a, x) => a + (x.outputs.find(([i]) => i === WATER)?.[1] ?? 0), 0))} water from the ${list(recycled.map((x) => x.r.name))} ${plural('refinery', 2)} as piped back in; if it isn't, the machines need ${rate(WATER, waterNeed + recycled.reduce((a, x) => a + (x.outputs.find(([i]) => i === WATER)?.[1] ?? 0), 0))}.`
-    : '';
+  const loopWater = recycled.reduce((a, x) => a + (x.outputs.find(([i]) => i === WATER)?.[1] ?? 0), 0);
+  const loop = recycled.length ? ` Counts the ${rate(WATER, loopWater)} from ${list(recycled.map((x) => x.r.name))} as piped back in.` : '';
   if (waterNeed > 0.01 && exs.length) {
     const pump = extractors.Build_WaterPump_C;
     if (waterHave + 0.01 < waterNeed && u.buildings.has(pump.id)) {
@@ -290,23 +322,29 @@ export function builtSuggestions(
       tips.push({
         kind: 'resource', score: 90,
         title: `Water is short by ${rate(WATER, short)}`,
-        detail: `The machines need ${rate(WATER, waterNeed)} but ${pumpCount ? `its ${pumpCount} water ${plural('extractor', pumpCount)} pump ${rate(WATER, waterHave)}` : 'no water extractors are connected'}. Add ${n} Water ${plural('Extractor', n)}${n * pump.rate > short + 1e-6 ? ` (clocked to ${fmt((short / n / pump.rate) * 100)}%)` : ''}, or raise the clocks of the ones you have.${loop}`,
+        detail: `Machines need ${rate(WATER, waterNeed)}; ${pumpCount ? `its water extractors pump ${rate(WATER, waterHave)}` : 'no water extractors are connected'}.${loop}`,
+        steps: [`Add ${n} Water ${plural('Extractor', n)}${n * pump.rate > short + 1e-6 ? ` at ${fmt((short / n / pump.rate) * 100)}%` : ''}${pumpCount ? ', or raise the clocks of the ones you have' : ''}`],
       });
     } else if (pumpCount > 0) {
       const each = waterHave / pumpCount;
       const sparePumps = Math.floor((waterHave - waterNeed) / each + 1e-9);
       if (sparePumps >= 1) {
         const pw = pumps.reduce((a, x) => a + x.power, 0) / pumpCount;
+        const c = exClock(pumps.flatMap((x) => x.clocks));
         tips.push({
           kind: 'clock', score: 20,
           title: `${sparePumps} water ${plural('extractor', sparePumps)} more than needed`,
-          detail: `${pumpCount} pump ${rate(WATER, waterHave)} for a need of ${rate(WATER, waterNeed)}. Removing ${sparePumps > 1 ? 'them' : 'one'} or underclocking saves about ${mw(sparePumps * pw)}.${loop}`,
+          detail: `They pump ${rate(WATER, waterHave)} for a need of ${rate(WATER, waterNeed)}.${loop}`,
+          steps: [
+            `Remove ${sparePumps} Water ${plural('Extractor', sparePumps)} (saves about ${mw(sparePumps * pw)}), or set all ${pumpCount} to ${fmt((c * waterNeed) / waterHave)}%`,
+            ...(recycled.length ? [`Keep them if the ${list(recycled.map((x) => x.r.name))} water isn't piped back in — then you need ${rate(WATER, waterNeed + loopWater)}`] : []),
+          ],
         });
       }
     }
   }
 
-  // 8. Unlocked alternate recipes the best plan for the same output uses.
+  // 7. Unlocked alternate recipes the best plan for the same output uses.
   if (best.status === 'ok' && best.rate > 0) {
     const builtRecipes = new Set(g.groups.map((x) => x.recipe));
     const missing = best.groups.filter((x) => !builtRecipes.has(x.recipe.id) && x.recipe.alt);
@@ -316,29 +354,33 @@ export function builtSuggestions(
       tips.push({
         kind: 'recipe', score: 50,
         title: `You have ${missing.length === 1 ? 'an alternate recipe' : `${missing.length} alternate recipes`} this factory doesn’t use`,
-        detail: `${missing.map((x) => x.recipe.name).join(', ')} — the best plan for the same output uses ${bestMachines} machines and ${mw(best.power.machines)} instead of ${machinesBuilt} and ${mw(g.power)}.`,
+        detail: `With ${list(missing.map((x) => x.recipe.name))}, the same output takes ${bestMachines} machines and ${mw(best.power.machines)} instead of ${machinesBuilt} and ${mw(g.power)}.`,
+        steps: ['Open “Recipe by recipe vs. the best layout” below to see which machines change'],
       });
     }
   }
 
-  // 9. Surplus: how much is over-made and how to use it or make less.
+  // 8. Surplus: how much is over-made and how to use it or make less.
   for (const [item, left] of g.outputs.filter(([i]) => extra.has(i) && i !== f.target)) {
     const makers = rows.filter((x) => x.outputs.some(([i]) => i === item));
     const made = makers.reduce((a, x) => a + (x.outputs.find(([i]) => i === item)?.[1] ?? 0), 0);
     const used = made - left;
-    const pct = made > 0 ? (used / made) * 100 : 0;
+    const steps = makers.length === 1
+      ? [setTo(makers[0].r.id, makers[0].speed * (used / made))]
+      : [`Slow the ${list(makers.map((x) => x.r.name))} machines to about ${fmt((used / made) * 100)}% of their current clocks`];
     const gen = Object.values(recipes).find((r) => r.generator && !r.noPlan && r.in[0]?.[0] === item && u.buildings.has(r.machine));
-    let idea = '';
     if (gen) {
       const per = gen.in[0][1];
       const mwEach = gen.out.find(([i]) => i === POWER)?.[1] ?? 0;
       const n = Math.ceil(left / per - 1e-9);
-      idea = ` Or burn it: ${n} ${plural(machines[gen.machine]?.name ?? 'generator', n)}${n * per > left + 1e-6 ? ` at ${fmt((left / per / n) * 100)}%` : ''} would turn it into about ${mw((left / per) * mwEach)}.`;
+      steps.push(`Or burn it: ${n} ${plural(machines[gen.machine]?.name ?? 'generator', n)}${n * per > left + 1e-6 ? ` at ${fmt((left / per / n) * 100)}%` : ''} make about ${mw((left / per) * mwEach)}`);
     }
+    if (usedByMax.includes(item)) steps.push(`Or put it to work — see ${upTo}`);
     tips.push({
       kind: 'byproduct', score: 30,
       title: `${rate(item, left)} ${itemName(item)} is surplus`,
-      detail: `The ${makers.map((x) => `${x.g.count} × ${x.r.name}`).join(' and ')} make ${rate(item, made)}, but this factory only uses ${rate(item, used)}. If the extra doesn't leave by belt or train, it backs up and those machines idle part of the time — underclock them to about ${fmt(pct * (makers[0]?.avgClock ?? 100) / 100)}% to match.${idea}${useIt(item)}`,
+      detail: `Made at ${rate(item, made)}, used at ${rate(item, used)}. Unless the extra leaves by belt or train, it backs up and those machines idle.`,
+      steps,
     });
   }
 

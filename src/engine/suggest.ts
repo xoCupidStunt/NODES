@@ -9,6 +9,8 @@ export interface Tip {
   kind: 'resource' | 'recipe' | 'clock' | 'logistics' | 'byproduct' | 'import' | 'research' | 'sloop';
   title: string;
   detail: string;
+  /** Simple steps to make the change, in order. */
+  steps?: string[];
   /** Rough size of the win, used for sorting. */
   score: number;
 }
