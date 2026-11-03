@@ -112,6 +112,11 @@ function reducer(s: State, a: Action): State {
 /** Planned factories: "as much as possible" maximises; a target rate is hit with the least power. */
 const plannedMode = (f: Factory): Factory => (f.game ? f : { ...f, mode: f.rate === null ? 'max' : f.mode === 'max' ? 'power' : f.mode });
 
+/** Power shards not already in a machine: owned minus slotted, from the last synced save (owned if not synced). */
+export function spareShards(s: { progress: Progress; game: { shards: { total: number; slotted: number } } | null }) {
+  return Math.max(0, s.progress.shards - (s.game?.shards.slotted ?? 0));
+}
+
 export function newFactory(n: number): Factory {
   return {
     id: Math.random().toString(36).slice(2, 10),
@@ -159,6 +164,8 @@ interface Ctx {
   dispatch: (a: Action) => void;
   active: Factory | null;
   plans: Record<string, Plan>;
+  /** Progress with only the spare power shards (owned minus those slotted in machines in the game). */
+  planProgress: Progress;
   /** Factories found in the synced save (with combine/separate rules applied). */
   found: FoundFactory[];
 }
@@ -173,14 +180,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* storage full or blocked */
     }
   }, [state]);
+  // Shards already in machines in the game aren't free: plans only get the spare ones.
+  const planProgress = useMemo(() => ({ ...state.progress, shards: spareShards(state) }), [state.progress, state.game]); // eslint-disable-line react-hooks/exhaustive-deps
   const plans = useMemo(() => {
     const out: Record<string, Plan> = {};
-    for (const f of state.factories) out[f.id] = buildPlan(f, state.progress);
+    for (const f of state.factories) out[f.id] = buildPlan(f, planProgress);
     return out;
-  }, [state.factories, state.progress]);
+  }, [state.factories, planProgress]);
   const found = useMemo(() => foundOf(state), [state.game, state.progress, state.groupRules]); // eslint-disable-line react-hooks/exhaustive-deps
   const active = state.factories.find((f) => f.id === state.activeId) ?? null;
-  const value = useMemo(() => ({ state, dispatch, active, plans, found }), [state, active, plans, found]);
+  const value = useMemo(() => ({ state, dispatch, active, plans, found, planProgress }), [state, active, plans, found, planProgress]);
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>;
 }
 

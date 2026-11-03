@@ -2,13 +2,19 @@ import { useMemo } from 'react';
 import { itemName, producibleItems, RAW_ITEMS, recipes, unit } from '../data/game';
 import { allowedRecipes } from '../engine/plan';
 import { rawDemand } from '../engine/placement';
-import type { AlsoProduct, Factory } from '../engine/types';
+import type { AlsoProduct, BuildPriority, Factory } from '../engine/types';
 import { useStore } from '../state';
 import { CombineSeparateCard } from './CombineSeparateCard';
 import { fmt, ItemPicker, ItemTag, NumberInput, confirmDelete } from './ui';
 
+const PRIORITIES: { id: BuildPriority; title: string; text: string }[] = [
+  { id: 'compact', title: 'Fewest machines', text: 'Overclock as far as your max clock and spare shards allow. Smallest build, most power.' },
+  { id: 'balanced', title: 'Balanced', text: 'Adds a machine when it saves enough power to be worth it. Usually near 100%.' },
+  { id: 'power', title: 'Least power', text: 'More machines at lower clocks. Biggest build, lowest power bill.' },
+];
+
 export function Setup({ f }: { f: Factory }) {
-  const { state, dispatch, plans } = useStore();
+  const { state, dispatch, plans, planProgress } = useStore();
   const plan = plans[f.id];
   const update = (patch: Partial<Factory>) => dispatch({ type: 'update', id: f.id, patch });
   const u = plan.unlocks;
@@ -96,20 +102,30 @@ export function Setup({ f }: { f: Factory }) {
       </section>
 
       <section className="card">
-        <h2>Overclock settings</h2>
-        <div className="row gap wrap">
+        <h2>Efficiency settings</h2>
+        <div className="mode-cards priority-cards">
+          {PRIORITIES.map((p) => (
+            <button key={p.id} className={`mode ${(f.priority ?? 'balanced') === p.id ? 'on' : ''}`} onClick={() => update({ priority: p.id })}>
+              <b>{p.title}</b>
+              <span>{p.text}</span>
+            </button>
+          ))}
+        </div>
+        <div className="row gap wrap" style={{ marginTop: 12 }}>
           <label title="Upper clock limit for production machines">
             Max clock <NumberInput value={f.clockCap} min={1} step={10} width={70} onChange={(v) => update({ clockCap: Math.min(250, v ?? 100) })} /> %
           </label>
           {u.overclock ? (
             <label className="check">
               <input type="checkbox" checked={f.useShards} onChange={(e) => update({ useShards: e.target.checked, clockCap: e.target.checked ? 250 : Math.min(100, f.clockCap) })} />
-              Use power shards to overclock ({state.progress.shards} available)
+              Use power shards to overclock — {planProgress.shards} spare{state.game ? <span className="muted"> ({state.progress.shards} owned, {state.game.shards.slotted} already in machines)</span> : null}
             </label>
           ) : (
             <span className="muted small-text">Overclocking needs the “Overclock Production” MAM research.</span>
           )}
         </div>
+        {f.useShards && u.overclock && planProgress.shards === 0 && <p className="warn-text small-text">No spare power shards — every one you own is already in a machine, so nothing here can be overclocked.</p>}
+        <p className="muted small-text">Power use grows faster than clock speed, so more machines at lower clocks use less power, while overclocking needs fewer buildings (and shards). Miners and water extractors follow the same setting.</p>
       </section>
 
       <section className="card">

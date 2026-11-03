@@ -17,10 +17,10 @@ const SOURCE: Record<string, string> = {
 };
 
 export function Results({ f }: { f: Factory }) {
-  const { state, dispatch, plans } = useStore();
+  const { state, dispatch, plans, planProgress } = useStore();
   const plan = plans[f.id];
   const deferred = useDeferredValue(plan);
-  const tips = useMemo(() => suggestions(f, deferred, state.progress, state.factories, plans, state.game?.occupied), [f, deferred, state.progress, state.factories, plans, state.game]);
+  const tips = useMemo(() => suggestions(f, deferred, planProgress, state.factories, plans, state.game?.occupied), [f, deferred, planProgress, state.factories, plans, state.game]);
   const machineCount = plan.groups.reduce((a, g) => a + g.count, 0);
   // Extractors as equipment: grouped by building and resource.
   const extractionRows = useMemo(() => {

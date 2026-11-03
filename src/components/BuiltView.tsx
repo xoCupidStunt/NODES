@@ -1,6 +1,6 @@
 import { useDeferredValue, useMemo } from 'react';
 import { extractors, isPower, itemColor, itemName, MACHINE_COLORS, POWER, RAW_ITEMS, WATER } from '../data/game';
-import { buildPlan, nodeById, nodeRate } from '../engine/plan';
+import { buildPlan, nodeById, nodeRate, shardsFor } from '../engine/plan';
 import { shortfallsOf, surplusItems } from '../engine/gameFactories';
 import { builtCompareFactory, builtMaxFactory, builtSuggestions, groupRates } from '../engine/builtTips';
 import { SURPLUS_HELP } from './GameFactoriesCard';
@@ -14,14 +14,19 @@ import { fmt, ItemTag, mw, rateText, Stat, confirmDelete } from './ui';
 
 /** A factory that is already built in the game: what it makes, how well, and how to get more out of it. */
 export function BuiltView({ f }: { f: Factory }) {
-  const { state, dispatch } = useStore();
+  const { state, dispatch, planProgress } = useStore();
   const g = f.game!;
+  // Shards it could use: the spare ones plus those already in its own machines and extractors.
+  const progress = useMemo(() => {
+    const own = [...g.groups.flatMap((x) => x.clocks), ...(g.extractors ?? []).flatMap((x) => x.clocks)].reduce((a, [c, n]) => a + shardsFor(c) * n, 0);
+    return { ...planProgress, shards: planProgress.shards + own };
+  }, [g, planProgress]);
   // Best layout for the same output, inputs and clock ceiling as built (not the planner's defaults).
-  const best = useMemo(() => buildPlan(builtCompareFactory(f), state.progress), [f, state.progress]);
+  const best = useMemo(() => buildPlan(builtCompareFactory(f), progress), [f, progress]);
   // Most this factory could make from what its extractors deliver now and its outside supply.
   // The other products it makes in game stay at their current rates, so "more" never means "drop something else".
   const fMax = useMemo(() => builtMaxFactory(f), [f]);
-  const maxPlan = useMemo(() => buildPlan(fMax, state.progress), [fMax, state.progress]);
+  const maxPlan = useMemo(() => buildPlan(fMax, progress), [fMax, progress]);
   const deferredMax = useDeferredValue(maxPlan);
 
   const rows = useMemo(() => g.groups.map((x) => ({ g: x, ...groupRates(x) })), [g]);
@@ -65,8 +70,8 @@ export function BuiltView({ f }: { f: Factory }) {
   const bestMachines = bestOk ? best.groups.reduce((a, x) => a + x.count, 0) : 0;
 
   const advice = useMemo(
-    () => builtSuggestions(f, deferredMax, best, state.progress, state.factories, state.game?.occupied),
-    [f, deferredMax, best, state.progress, state.factories, state.game?.occupied],
+    () => builtSuggestions(f, deferredMax, best, progress, state.factories, state.game?.occupied),
+    [f, deferredMax, best, progress, state.factories, state.game?.occupied],
   );
   const tips = advice.tips;
 

@@ -10,13 +10,13 @@ const km = (m: number) => (m >= 2000 ? `${fmt(m / 1000, 1)} km` : `${fmt(m, 0)} 
 
 /** Warnings for a factory being planned: far supply, and parts it could leave to other factories. */
 export function LogisticsCard({ f }: { f: Factory }) {
-  const { state, dispatch, plans } = useStore();
+  const { state, dispatch, plans, planProgress } = useStore();
   const { found, byFound } = useFoundFactories();
   const plan = plans[f.id];
   const notAdded = useMemo(() => found.filter((ff) => !byFound.has(ff.key)), [found, byFound]);
   const warnings = useMemo(
-    () => (plan ? logisticsCheck(f, plan, state.progress, state.factories, plans, notAdded, state.game?.occupied) : []),
-    [f, plan, state.progress, state.factories, plans, notAdded, state.game?.occupied],
+    () => (plan ? logisticsCheck(f, plan, planProgress, state.factories, plans, notAdded, state.game?.occupied) : []),
+    [f, plan, planProgress, state.factories, plans, notAdded, state.game?.occupied],
   );
   if (f.game || !plan || plan.status !== 'ok') return null;
 

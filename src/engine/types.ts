@@ -43,6 +43,8 @@ export const defaultSchematic: SchematicOptions = {
  */
 export interface AlsoProduct { item: string; rate: number; how?: 'fixed' | 'share' | 'leftover'; ratio?: number }
 
+export type BuildPriority = 'compact' | 'balanced' | 'power';
+
 export interface Import { factoryId: string; item: string; rate: number }
 
 /** Machines running one recipe in a factory found in the save. */
@@ -108,6 +110,11 @@ export interface Factory {
   /** Clock limit for production machines (%), e.g. 250 with power shards. */
   clockCap: number;
   useShards: boolean;
+  /**
+   * How to trade machines against clock speed: 'compact' = fewest machines (overclock as far as allowed),
+   * 'balanced' = a middle ground (default), 'power' = least power (more machines at lower clocks).
+   */
+  priority?: BuildPriority;
   schematic: SchematicOptions;
   createdAt: number;
   /** Other products this factory also makes. */

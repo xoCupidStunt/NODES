@@ -17,7 +17,7 @@ const PURITY_R = { impure: 0.75, normal: 1, pure: 1.35 };
 interface ViewBox { x: number; y: number; w: number }
 
 export function MapView({ f }: { f: Factory }) {
-  const { state, dispatch, plans } = useStore();
+  const { state, dispatch, plans, planProgress } = useStore();
   const plan = plans[f.id];
   const update = (patch: Partial<Factory>) => dispatch({ type: 'update', id: f.id, patch });
   const { found, byFound } = useFoundFactories();
@@ -79,10 +79,10 @@ export function MapView({ f }: { f: Factory }) {
   // How much of each part the chain uses (imports count too), so an import takes no more than that.
   const chainUse = useMemo(() => {
     const m: Record<string, number> = {};
-    const chain = plan.groups.length ? plan : buildPlan({ ...f, unlimitedRaw: true }, state.progress);
+    const chain = plan.groups.length ? plan : buildPlan({ ...f, unlimitedRaw: true }, planProgress);
     for (const g of chain.groups) for (const [i, v] of g.inputs) m[i] = (m[i] ?? 0) + v;
     return m;
-  }, [plan, f, state.progress]);
+  }, [plan, f, planProgress]);
   const chainItems = useMemo(() => new Set<string>([...Object.keys(demand), ...Object.keys(chainUse)]), [demand, chainUse]);
   const helpers = useMemo(() => helpfulFactories(f, state.factories, plans, chainItems), [f, state.factories, plans, chainItems]);
   const helperIds = new Set(helpers.map((h) => h.factory.id));
@@ -151,7 +151,7 @@ export function MapView({ f }: { f: Factory }) {
   const suggest = () => {
     setBusy(true);
     setTimeout(() => {
-      const s = suggestLocation(f, state.factories, state.progress, plan, inGame);
+      const s = suggestLocation(f, state.factories, planProgress, plan, inGame);
       setBusy(false);
       if (!s) return alert('Nothing to place for — this factory needs no mined resources or imports.');
       update({ location: s.location, nodes: s.nodes, placement: 'suggested' });

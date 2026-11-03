@@ -68,9 +68,9 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
         if (!u.overclock) {
           if (!availableOnly) ways.push(`Research “Overclock Production” in the MAM, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} power shards)`);
         } else if (progress.shards <= 0) {
-          ways.push(`Collect power shards, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} shards)`);
+          ways.push(`Free up or collect power shards (none are spare), then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} shards)`);
         } else if (!f.useShards) {
-          ways.push(`Turn on “Use power shards” in step 1 (Overclock settings) — ${what} can then run at up to 250% (+${fmt(gain)}${unit}, ${shards} of your ${progress.shards} shards)`);
+          ways.push(`Turn on “Use power shards” in step 1 (Efficiency settings) — ${what} can then run at up to 250% (+${fmt(gain)}${unit}, ${shards} of your ${progress.shards} spare shards)`);
         } else if (f.clockCap < 250) {
           ways.push(`Raise “Max clock” in step 1 to 250% — ${what} ${n > 1 ? 'are' : 'is'} held to ${fmt(f.clockCap, 0)}% (+${fmt(gain)}${unit})`);
         } else {
@@ -140,7 +140,7 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
       const powerThen = clockPower(wp.power, 1.321929, clock) * fewer;
       const how = !u.overclock
         ? (availableOnly ? '' : 'Research “Overclock Production” in the MAM, then turn on “Use power shards” in step 1')
-        : progress.shards <= 0 ? 'Collect power shards, then turn on “Use power shards” in step 1' : 'Turn on “Use power shards” in step 1 (Overclock settings)';
+        : progress.shards <= 0 ? 'Free up or collect power shards, then turn on “Use power shards” in step 1' : 'Turn on “Use power shards” in step 1 (Efficiency settings)';
       if (how) {
         tips.push({
           kind: 'clock', score: 35,

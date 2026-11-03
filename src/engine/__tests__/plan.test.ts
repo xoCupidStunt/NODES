@@ -208,3 +208,24 @@ describe('overclocking water extractors', () => {
     expect(on.shardsUsed).toBeLessThanOrEqual(20);
   });
 });
+
+describe('machines vs overclocking', () => {
+  it('trades machine count against power by build priority', async () => {
+    const { chooseCount } = await import('../plan');
+    // 2.5 Constructors' worth of work (4 MW each at 100%), shards to spare.
+    expect(chooseCount(2.5, 4, 1.321929, 250, 100, 'compact')).toMatchObject({ count: 1, clock: 250 });
+    expect(chooseCount(2.5, 4, 1.321929, 250, 100, 'balanced').count).toBe(2);
+    expect(chooseCount(2.5, 4, 1.321929, 250, 100, 'power').count).toBeGreaterThan(2);
+    // No shards: never above 100%.
+    expect(chooseCount(2.5, 4, 1.321929, 250, 0, 'compact')).toMatchObject({ count: 3 });
+    // 500 m³/min of water (4.17 extractors' worth), big buildings weighted 3×.
+    expect(chooseCount(500 / 120, 20, 1.321929, 250, Infinity, 'balanced', 3).count).toBe(2);
+    expect(chooseCount(500 / 120, 20, 1.321929, 250, Infinity, 'power', 3).count).toBe(3);
+  });
+
+  it('only counts shards that are not already in machines', async () => {
+    const { spareShards } = await import('../../state');
+    expect(spareShards({ progress: { ...progress(2), shards: 225 }, game: { shards: { total: 225, slotted: 213 } } })).toBe(12);
+    expect(spareShards({ progress: { ...progress(2), shards: 10 }, game: null })).toBe(10);
+  });
+});

@@ -3,7 +3,7 @@ import {
   type Extractor, type Machine, type Recipe, type ResourceNode, type Transport, isPower, POWER } from '../data/game';
 import { availableBelts, availablePipes, bestMiner, computeUnlocks, type Progress, type Unlocks } from './progression';
 import { recipePower, solvePlan, type SolveResult } from './solver';
-import type { Factory } from './types';
+import type { BuildPriority, Factory } from './types';
 
 export const nodeById = Object.fromEntries(nodes.map((n) => [n.id, n]));
 
@@ -94,6 +94,38 @@ export function nodeRate(node: ResourceNode, u: Unlocks, clock = 100): number {
   // A single belt/pipe out of the extractor caps it.
   const cap = isFluid(node.item) ? availablePipes(u).at(-1)!.rate : availableBelts(u).at(-1)!.rate;
   return Math.min(rate, cap);
+}
+
+/** What one machine "costs" against power, per build priority, in units of that machine's power at 100 %. */
+const MACHINE_WEIGHT: Record<BuildPriority, number> = { compact: Infinity, balanced: 0.4, power: 0.2 };
+
+/**
+ * How many machines, and at what clock, to do `exact` machines' worth of work. Starts from the fewest the clock
+ * cap and spare shards allow; then, unless the priority is 'compact', weighs each extra machine against the power
+ * it saves (power grows as clock^exp, so more machines at lower clocks use less in total).
+ */
+export function chooseCount(exact: number, base: number, exp: number, cap: number, shards: number, priority: BuildPriority = 'balanced', size = 1) {
+  let top = Math.min(cap, 100);
+  if (cap > 100) {
+    // The highest clock there are shards for.
+    for (let c = cap; c > 100; c -= 50) {
+      const n = Math.ceil(exact / (c / 100) - 1e-9);
+      if (n * shardsFor(Math.min(c, (exact / n) * 100)) <= shards) { top = c; break; }
+    }
+  }
+  const nMin = Math.max(1, Math.ceil(exact / (top / 100) - 1e-9));
+  let count = nMin;
+  const w = MACHINE_WEIGHT[priority] * size; // size: how much one more of this building counts (big ones more)
+  if (Number.isFinite(w) && base > 0) {
+    const cost = (n: number) => base * n * Math.pow(exact / n, exp) + w * base * n;
+    let best = cost(nMin);
+    for (let n = nMin + 1; n <= nMin * 4 + 2; n++) {
+      const c = cost(n);
+      if (c < best - 1e-9) { best = c; count = n; }
+    }
+  }
+  const clock = round((exact / count) * 100);
+  return { count, clock, maxClock: top };
 }
 
 export function shardsFor(clock: number) {
@@ -191,7 +223,8 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     : 0;
   const pumpsFor = (need: number, clockCap: number) => {
     const wp = extractors.Build_WaterPump_C;
-    const count = Math.max(1, Math.ceil(need / (wp.rate * (clockCap / 100)) - 1e-9));
+    // Water Extractors are big and need open water: each extra one counts about 3× a normal machine.
+    const { count } = chooseCount(need / wp.rate, wp.power, 1.321929, clockCap, Infinity, f.priority, 3);
     const clock = round((need / count / wp.rate) * 100, 2);
     return { count, clock, shards: count * shardsFor(clock) };
   };
@@ -213,17 +246,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     if (exact < 1e-3) continue; // solver rounding noise, not a real machine
     const r = recipes[rid];
     const m = machines[r.machine];
-    let maxClock = Math.min(cap, 100);
-    if (cap > 100) {
-      // Find the highest clock we can afford shards for.
-      for (let c = cap; c > 100; c -= 50) {
-        const cnt = Math.ceil(exact / (c / 100) - 1e-9);
-        const need = cnt * shardsFor(Math.min(c, (exact / cnt) * 100));
-        if (need <= shardsLeft) { maxClock = c; break; }
-      }
-    }
-    const count = Math.max(1, Math.ceil(exact / (maxClock / 100) - 1e-9));
-    const clock = round((exact / count) * 100);
+    const { count, clock, maxClock } = chooseCount(exact, recipePower(r), m.exp, cap, shardsLeft, f.priority);
     const full = Math.floor(exact / (maxClock / 100) + 1e-9);
     const lastClock = round((exact - full * (maxClock / 100)) * 100);
     const shardsPerMachine = shardsFor(clock);
