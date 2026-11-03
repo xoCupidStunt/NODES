@@ -148,17 +148,7 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
   }
   tips.push(...altTips.sort((a, b) => b.score - a.score).slice(0, 4));
 
-  // 3. Clock speed tips.
-  const split = plan.groups.filter((g) => g.count > 1 && g.lastClock > 0 && g.lastClock < 100 && g.clock < 99.99);
-  if (split.length) {
-    const ex = split[0];
-    tips.push({
-      kind: 'clock',
-      title: `${split.length} recipe${split.length > 1 ? 's' : ''} can be clocked two ways`,
-      detail: `e.g. ${ex.recipe.name}: all ${ex.count} at ${fmt(ex.clock, 2)}%, or ${ex.full} at ${fmt(ex.maxClock)}% + 1 at ${fmt(ex.lastClock, 2)}%. Equal clocks use slightly less power; one odd machine is quicker to set up. Both options are in the Equipment table.`,
-      score: 10,
-    });
-  }
+  // 3. Clock speed tips. (Every machine in a group runs at the same clock — one odd machine would starve or flood the next step.)
   if (f.mode === 'power') {
     // Underclocking: one extra machine per group lowers total power.
     let saved = 0;

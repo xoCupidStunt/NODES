@@ -79,7 +79,7 @@ export function Results({ f }: { f: Factory }) {
         </div>
         <table className="table">
           <thead>
-            <tr><th>Machine</th><th>Recipe</th><th>Count</th><th>Clock (all same)</th><th>Or</th><th>Shards</th><th>Power</th><th>In / min</th><th>Out / min</th></tr>
+            <tr><th>Machine</th><th>Recipe</th><th>Count</th><th>Clock</th><th>Shards</th><th>Power</th><th>In / min</th><th>Out / min</th></tr>
           </thead>
           <tbody>
             {plan.groups.map((g) => (
@@ -88,14 +88,13 @@ export function Results({ f }: { f: Factory }) {
                 <td>{g.recipe.name}{g.recipe.alt && <span className="badge">alt</span>}</td>
                 <td className="num"><b>{g.count}</b> <span className="muted">({fmt(g.exact, 3)})</span></td>
                 <td className="num">{fmt(g.clock, 4)}%</td>
-                <td className="muted small-text">{g.lastClock > 0 && g.count > 1 ? `${g.full} × ${fmt(g.maxClock)}% + 1 × ${fmt(g.lastClock, 4)}%` : '—'}</td>
                 <td className="num">{g.shardsPerMachine ? `${g.shardsPerMachine} each` : '—'}</td>
                 <td className="num">{mw(g.power)}</td>
                 <td>{g.inputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
                 <td>{g.outputs.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}</td>
               </tr>
             ))}
-            {extractionRows.length > 0 && <tr className="equip-sep"><td colSpan={9}>Extraction</td></tr>}
+            {extractionRows.length > 0 && <tr className="equip-sep"><td colSpan={8}>Extraction</td></tr>}
             {extractionRows.map((x) => {
               const isOpen = open.has(x.key);
               const shards = x.sites.reduce((a, e) => a + shardsFor(e.clock) * e.count, 0);
@@ -106,7 +105,6 @@ export function Results({ f }: { f: Factory }) {
                     <td className="muted">{x.what}</td>
                     <td className="num"><b>{x.count}</b></td>
                     <td className="num">{x.clock}</td>
-                    <td className="muted small-text">—</td>
                     <td className="num">{shards ? `${shards} total` : '—'}</td>
                     <td className="num">{mw(x.power)}</td>
                     <td className="muted">—</td>
@@ -121,7 +119,6 @@ export function Results({ f }: { f: Factory }) {
                       </td>
                       <td className="num small-text">{e.count}</td>
                       <td className="num small-text">{e.extractor.kind === 'pressurizer' ? '—' : `${fmt(e.clock, 2)}%`}</td>
-                      <td className="muted small-text">—</td>
                       <td className="num small-text">{shardsFor(e.clock) ? `${shardsFor(e.clock)} each` : '—'}</td>
                       <td className="num small-text">{mw(e.power)}</td>
                       <td className="muted">—</td>
