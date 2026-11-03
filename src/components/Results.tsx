@@ -51,7 +51,7 @@ export function Results({ f }: { f: Factory }) {
   return (
     <div className="results">
       <div className="stats">
-        <Stat label="Output" value={`${fmt(plan.rate)} ${unit(f.target)}`} sub={plan.also.length ? `${itemName(f.target)} + ${plan.also.length} more product${plan.also.length > 1 ? 's' : ''}` : itemName(f.target)} />
+        <Stat label={plan.also.length ? 'Main product' : 'Output'} value={`${fmt(plan.rate)} ${unit(f.target)}`} sub={plan.also.length ? `${itemName(f.target)} + ${plan.also.length} more — see Products` : itemName(f.target)} />
         <Stat label="Most possible" value={plan.maxRate === null ? 'unlimited' : `${fmt(plan.maxRate)} ${unit(f.target)}`} sub={plan.maxRate === null ? 'no resource cap' : 'with claimed resources'} />
         <Stat label="Power used" value={mw(plan.power.total)} sub={`${mw(plan.power.machines)} machines · ${mw(plan.power.extraction)} extraction`} />
         {plan.power.generated > 0 && <Stat label="Power made" value={mw(plan.power.generated)} sub={`net ${plan.power.net >= 0 ? '+' : ''}${mw(plan.power.net)} to the grid`} />}
@@ -107,6 +107,26 @@ export function Results({ f }: { f: Factory }) {
 
       <div className="two-col">
         <section className="card">
+          <h2>Products</h2>
+          <table className="table compact">
+            <tbody>
+              <tr className="main-row"><td><ItemTag item={f.target} rate={plan.rate} /></td><td className="muted small-text">main product</td></tr>
+              {plan.also.map(([i, v]) => {
+                const a = f.also.find((x) => x.item === i);
+                const how = a?.how === 'share' ? `shared, ${fmt(a.ratio ?? 1)} per 1 ${itemName(f.target)}` : a?.how === 'leftover' ? 'from leftovers' : 'fixed rate';
+                return <tr key={i}><td><ItemTag item={i} rate={v} /></td><td className="muted small-text">{how}</td></tr>;
+              })}
+            </tbody>
+          </table>
+          {plan.surplus.length > 0 && (
+            <>
+              <h3>Byproducts / leftovers</h3>
+              <p className="muted small-text">Made but not used or wanted — ship, sink or store them.</p>
+              {plan.surplus.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}
+            </>
+          )}
+        </section>
+        <section className="card">
           <h2>Inputs</h2>
           <table className="table compact">
             <tbody>
@@ -115,19 +135,9 @@ export function Results({ f }: { f: Factory }) {
               ))}
             </tbody>
           </table>
-          {plan.also.length > 0 && (
-            <>
-              <h3>Also makes</h3>
-              {plan.also.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}
-            </>
-          )}
-          {plan.surplus.length > 0 && (
-            <>
-              <h3>Byproducts / leftovers</h3>
-              {plan.surplus.map(([i, v]) => <div key={i}><ItemTag item={i} rate={v} /></div>)}
-            </>
-          )}
         </section>
+      </div>
+      <div>
         <section className="card">
           <h2>Extraction</h2>
           {plan.extraction.length === 0 && <p className="muted">No extractors — inputs come from other factories or extra supply.</p>}
