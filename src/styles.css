@@ -326,3 +326,10 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .map-tip { position: fixed; z-index: 50; pointer-events: none; max-width: 300px; padding: 6px 9px; border-radius: 6px; background: #0b0e12f2; border: 1px solid var(--line); font-size: 12px; line-height: 1.4; box-shadow: 0 4px 14px #0008; }
 .map-tip b { display: block; text-transform: none; }
 .map .well { cursor: help; }
+
+/* Results: expandable extractor groups in the Equipment table */
+.ex-group { cursor: pointer; }
+.ex-group:hover td { background: #ffffff08; }
+.ex-toggle { background: none; border: 0; padding: 0 6px 0 0; color: var(--muted); font-size: 11px; cursor: pointer; }
+.ex-site td { background: #00000022; }
+.ex-site td:first-child { padding-left: 34px; }

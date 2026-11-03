@@ -1,5 +1,8 @@
-import { useDeferredValue, useMemo } from 'react';
+import { Fragment, useDeferredValue, useMemo, useState } from 'react';
 import { itemColor, itemName, MACHINE_COLORS, unit, WATER } from '../data/game';
+import { shardsFor } from '../engine/plan';
+import { dist } from '../engine/placement';
+import { bearing } from '../engine/schematic';
 import { suggestions } from '../engine/suggest';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
@@ -21,11 +24,12 @@ export function Results({ f }: { f: Factory }) {
   const machineCount = plan.groups.reduce((a, g) => a + g.count, 0);
   // Extractors as equipment: grouped by building and resource.
   const extractionRows = useMemo(() => {
-    const m = new Map<string, { key: string; name: string; what: string; item: string; count: number; rate: number; power: number; clocks: Set<string> }>();
+    const m = new Map<string, { key: string; name: string; what: string; item: string; count: number; rate: number; power: number; clocks: Set<string>; sites: typeof plan.extraction }>();
     for (const e of plan.extraction) {
       const key = e.extractor.id + '|' + e.item;
       const what = e.extractor.kind === 'pressurizer' ? 'powers the resource well' : e.item === WATER ? 'Water' : `${itemName(e.item)} ${e.extractor.kind === 'well' ? 'well' : 'node'}`;
-      const cur = m.get(key) ?? { key, name: e.extractor.name, what, item: e.extractor.kind === 'pressurizer' ? '' : e.item, count: 0, rate: 0, power: 0, clocks: new Set<string>() };
+      const cur = m.get(key) ?? { key, name: e.extractor.name, what, item: e.extractor.kind === 'pressurizer' ? '' : e.item, count: 0, rate: 0, power: 0, clocks: new Set<string>(), sites: [] };
+      cur.sites.push(e);
       cur.count += e.count;
       cur.rate += e.rate;
       cur.power += e.power;
@@ -34,6 +38,10 @@ export function Results({ f }: { f: Factory }) {
     }
     return [...m.values()].map((x) => ({ ...x, clock: x.clocks.size === 1 ? [...x.clocks][0] : x.clocks.size ? 'varies' : '—' }));
   }, [plan.extraction]);
+
+  // Extractor groups opened to show each one (closed by default).
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   if (plan.status !== 'ok') {
     return (
@@ -88,19 +96,41 @@ export function Results({ f }: { f: Factory }) {
               </tr>
             ))}
             {extractionRows.length > 0 && <tr className="equip-sep"><td colSpan={9}>Extraction</td></tr>}
-            {extractionRows.map((x) => (
-              <tr key={x.key}>
-                <td><span className="mdot" style={{ background: x.item ? itemColor(x.item) : '#888' }} />{x.name}</td>
-                <td className="muted">{x.what}</td>
-                <td className="num"><b>{x.count}</b></td>
-                <td className="num">{x.clock}</td>
-                <td className="muted small-text">—</td>
-                <td className="num">—</td>
-                <td className="num">{mw(x.power)}</td>
-                <td className="muted">—</td>
-                <td>{x.item ? <ItemTag item={x.item} rate={x.rate} /> : <span className="muted">—</span>}</td>
-              </tr>
-            ))}
+            {extractionRows.map((x) => {
+              const isOpen = open.has(x.key);
+              const shards = x.sites.reduce((a, e) => a + shardsFor(e.clock) * e.count, 0);
+              return (
+                <Fragment key={x.key}>
+                  <tr className="ex-group" onClick={() => toggle(x.key)} title={isOpen ? 'Hide each extractor' : 'Show each extractor'}>
+                    <td><button className="ex-toggle" aria-expanded={isOpen} aria-label={isOpen ? 'Collapse' : 'Expand'}>{isOpen ? '▾' : '▸'}</button><span className="mdot" style={{ background: x.item ? itemColor(x.item) : '#888' }} />{x.name}</td>
+                    <td className="muted">{x.what}</td>
+                    <td className="num"><b>{x.count}</b></td>
+                    <td className="num">{x.clock}</td>
+                    <td className="muted small-text">—</td>
+                    <td className="num">{shards ? `${shards} total` : '—'}</td>
+                    <td className="num">{mw(x.power)}</td>
+                    <td className="muted">—</td>
+                    <td>{x.item ? <ItemTag item={x.item} rate={x.rate} /> : <span className="muted">—</span>}</td>
+                  </tr>
+                  {isOpen && x.sites.map((e, k) => (
+                    <tr key={x.key + k} className="ex-site">
+                      <td className="muted small-text">{e.count > 1 ? `${e.count} × ` : ''}{e.extractor.name}</td>
+                      <td className="small-text">
+                        {e.node ? `${e.extractor.kind === 'pressurizer' ? 'well centre' : `${e.node.purity} ${itemName(e.item)}${e.node.type === 'well' ? ' satellite' : ' node'}`}` : 'any water, on site'}
+                        {e.node && f.location && <span className="muted"> · {fmt(dist(e.node, f.location), 0)} m {bearing(f.location, e.node)}</span>}
+                      </td>
+                      <td className="num small-text">{e.count}</td>
+                      <td className="num small-text">{e.extractor.kind === 'pressurizer' ? '—' : `${fmt(e.clock, 2)}%`}</td>
+                      <td className="muted small-text">—</td>
+                      <td className="num small-text">{shardsFor(e.clock) ? `${shardsFor(e.clock)} each` : '—'}</td>
+                      <td className="num small-text">{mw(e.power)}</td>
+                      <td className="muted">—</td>
+                      <td>{e.rate > 0 ? <ItemTag item={e.item} rate={e.rate} /> : <span className="muted small-text">powers the well</span>}</td>
+                    </tr>
+                  ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </section>
@@ -137,27 +167,6 @@ export function Results({ f }: { f: Factory }) {
           </table>
         </section>
       </div>
-      <div>
-        <section className="card">
-          <h2>Extraction</h2>
-          {plan.extraction.length === 0 && <p className="muted">No extractors — inputs come from other factories or extra supply.</p>}
-          <table className="table compact">
-            <thead><tr><th>Building</th><th>Where</th><th>Clock</th><th>Gives</th><th>Power</th></tr></thead>
-            <tbody>
-              {plan.extraction.map((e, k) => (
-                <tr key={k}>
-                  <td>{e.count > 1 ? `${e.count} × ` : ''}{e.extractor.name}</td>
-                  <td className="muted">{e.node ? `${e.node.purity} ${itemName(e.item)}${e.node.type === 'well' ? ' well' : ''}` : 'any water'}</td>
-                  <td className="num">{e.extractor.kind === 'pressurizer' ? '—' : `${fmt(e.clock, 2)}%`}</td>
-                  <td>{e.rate > 0 ? <ItemTag item={e.item} rate={e.rate} /> : <span className="muted">powers well</span>}</td>
-                  <td className="num">{mw(e.power)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      </div>
-
       <section className="card">
         <h2>Layout diagram</h2>
         <p className="muted small-text">Production chain from raw inputs (left) to the product (right). Line labels show item, rate and the belt/pipe tier needed.</p>
