@@ -1,24 +1,50 @@
-import { useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type SVGProps } from 'react';
 import { FOUNDATION as F, isFluid, itemColor, itemName, MACHINE_COLORS } from '../data/game';
-import { buildSchematic, type BeltPath, type Floor, type Schematic } from '../engine/schematic';
+import { buildSchematic, facingFor, type BeltPath, type Facing, type Floor, type Schematic, type SchematicContext, type SourceBox } from '../engine/schematic';
 import { defaultSchematic, type Factory, type SchematicOptions } from '../engine/types';
 import { useStore } from '../state';
 import { fmt } from './ui';
 
 const C = {
+  yard: '#262c35',
   bg: '#14171c', floor: '#1d2229', grid: '#2b323c', grid5: '#3b4552', bus: '#232a33', row: '#20262e',
   text: '#e8e3d9', muted: '#9aa3ad', wall: '#c9ced6', hole: '#ffcc33', pole: '#ffd23f', machineStroke: '#0b0d10',
 };
 
 export function SchematicView({ f }: { f: Factory }) {
-  const { dispatch, plans } = useStore();
+  const { state, dispatch, plans } = useStore();
   const plan = plans[f.id];
   const o = f.schematic;
   const set = (patch: Partial<SchematicOptions>) => dispatch({ type: 'update', id: f.id, patch: { schematic: { ...o, ...patch } } });
   const [scale, setScale] = useState(5);
   const [floorSel, setFloorSel] = useState<number | 'all'>('all');
   const svgRef = useRef<SVGSVGElement>(null);
-  const sch = useMemo(() => (plan.status === 'ok' ? buildSchematic(plan, o, f.target) : null), [plan, o, f.target]);
+  // Each floor's real drawn extent (labels included), measured after render; the first render estimates.
+  const floorRefs = useRef<Record<number, SVGGElement | null>>({});
+  const [measured, setMeasured] = useState<Record<number, Box>>({});
+  useLayoutEffect(() => {
+    const next: Record<number, Box> = {};
+    let changed = false;
+    for (const [k, el] of Object.entries(floorRefs.current)) {
+      if (!el) continue;
+      const b = el.getBBox();
+      const box = { x0: b.x - 10, y0: b.y - 10, x1: b.x + b.width + 10, y1: b.y + b.height + 10 };
+      const old = measured[Number(k)];
+      next[Number(k)] = box;
+      if (!old || Math.abs(old.x0 - box.x0) + Math.abs(old.y0 - box.y0) + Math.abs(old.x1 - box.x1) + Math.abs(old.y1 - box.y1) > 2) changed = true;
+    }
+    if (changed) setMeasured(next);
+  });
+  // Where it is and who supplies it: gives the extraction yard distances and turns the plan toward its supply.
+  const ctx = useMemo<SchematicContext>(() => ({
+    location: f.location,
+    imports: f.imports.map((i) => {
+      const src = state.factories.find((x) => x.id === i.factoryId);
+      return { name: src?.name ?? 'another factory', item: i.item, rate: i.rate, at: src?.location ?? null };
+    }),
+  }), [f.location, f.imports, state.factories]);
+  const sch = useMemo(() => (plan.status === 'ok' ? buildSchematic(plan, o, f.target, ctx) : null), [plan, o, f.target, ctx]);
+  const autoFacing = useMemo(() => (plan.status === 'ok' ? facingFor(plan, ctx).facing : 'N'), [plan, ctx]);
 
   if (!sch) {
     return <div className="card"><h2>No schematic</h2><p className="muted">Finish the setup first — the plan has nothing to build yet.</p></div>;
@@ -26,8 +52,11 @@ export function SchematicView({ f }: { f: Factory }) {
   const floors = floorSel === 'all' ? sch.floors : sch.floors.filter((fl) => fl.index === floorSel);
   const HEADER = 34;
   const GAP = 40;
-  const totalH = floors.reduce((a, fl) => a + fl.height * scale + HEADER + GAP, 0);
-  const totalW = sch.width * scale + 40;
+  const FOOT = 34; // scale bar + north arrow under each floor
+  const angle = ANGLE[sch.facing];
+  const boxes = floors.map((fl) => turned(measured[fl.index] ?? floorBox(fl, sch, scale, o), angle));
+  const totalH = boxes.reduce((a, b) => a + (b.y1 - b.y0) + HEADER + FOOT + GAP, 0);
+  const totalW = Math.max(...boxes.map((b) => b.x1 - b.x0)) + 40;
 
   const download = (kind: 'svg' | 'png') => {
     const el = svgRef.current;
@@ -69,6 +98,12 @@ export function SchematicView({ f }: { f: Factory }) {
           <Range label="Machines per row (max)" value={o.maxPerRow} min={1} max={30} step={1} onChange={(v) => set({ maxPerRow: v })} />
           <Range label="Floors" value={o.floors} min={1} max={8} step={1} onChange={(v) => set({ floors: v })} />
           <Range label="Outer walkway" value={o.border} min={0} max={3} step={1} unit="fdn" onChange={(v) => set({ border: v })} />
+          <label className="field">Input side
+            <select value={o.orientation ?? 'auto'} onChange={(e) => set({ orientation: e.target.value as SchematicOptions['orientation'] })}>
+              <option value="auto">Toward the supply ({FACING_NAME[autoFacing]})</option>
+              {(['N', 'E', 'S', 'W'] as const).map((d) => <option key={d} value={d}>Face {FACING_NAME[d]}</option>)}
+            </select>
+          </label>
           <label className="field">Snap machines to
             <select value={o.snap} onChange={(e) => set({ snap: e.target.value as SchematicOptions['snap'] })}>
               <option value="none">1 m (tight)</option>
@@ -118,25 +153,32 @@ export function SchematicView({ f }: { f: Factory }) {
         <div className="sch-summary">
           <b>{sch.width / F} × {sch.height / F} foundations</b> ({sch.width} × {sch.height} m) · {sch.floors.length} floor{sch.floors.length > 1 ? 's' : ''}
           {sch.floors.length > 1 && <> · storey heights {sch.floors.map((fl) => `${fl.storeyHeight} m`).join(' / ')}</>}
-          <span className="muted"> · 1 grid square = 1 foundation (8 m)</span>
+          <span className="muted"> · 1 grid square = 1 foundation (8 m) · input wall faces {FACING_NAME[sch.facing]}</span>
         </div>
         <div className="sch-canvas">
           <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" width={totalW} height={totalH} style={{ background: C.bg }} fontFamily="Segoe UI, Roboto, sans-serif">
             <Defs sch={sch} />
             <rect width={totalW} height={totalH} fill={C.bg} />
-            {floors.map((fl) => {
+            {floors.map((fl, k) => {
+              const b = boxes[k];
+              const bh = b.y1 - b.y0;
               const g = (
                 <g key={fl.index} transform={`translate(20, ${yOff})`}>
                   <text x={0} y={22} fill={C.text} fontSize={16} fontWeight={700}>
                     Floor {fl.index + 1}{fl.index === 0 ? ' (ground)' : ` (+${sch.floors.slice(0, fl.index).reduce((a, x) => a + x.storeyHeight, 0)} m)`}
                     <tspan fill={C.muted} fontSize={12} fontWeight={400}>  · {fl.machines.length} machines · storey {fl.storeyHeight} m</tspan>
                   </text>
-                  <g transform={`translate(0, ${HEADER})`}>
-                    <FloorDrawing fl={fl} s={scale} o={o} />
-                  </g>
+                  <RotCtx.Provider value={angle}>
+                    <g transform={`translate(${-b.x0}, ${HEADER - b.y0}) rotate(${angle})`}>
+                      <g ref={(el) => { floorRefs.current[fl.index] = el; }}>
+                        <FloorDrawing fl={fl} s={scale} o={o} sources={fl.index === 0 ? sch.sources : []} />
+                      </g>
+                    </g>
+                  </RotCtx.Provider>
+                  <Compass x={0} y={HEADER + bh + 16} s={scale} facing={sch.facing} />
                 </g>
               );
-              yOff += fl.height * scale + HEADER + GAP;
+              yOff += bh + HEADER + FOOT + GAP;
               return g;
             })}
           </svg>
@@ -161,6 +203,7 @@ export function SchematicView({ f }: { f: Factory }) {
               {o.logistics !== 'visible' && <div><svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#aaa" strokeWidth={3} strokeDasharray="4 3" opacity={0.6} /></svg> Hidden belt / pipe</div>}
               {o.logistics !== 'visible' && <div><svg width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="none" stroke={C.hole} strokeWidth="2" /></svg> {o.logistics === 'walls' ? 'Wall hole' : 'Floor hole'}</div>}
               <div><svg width="20" height="12"><path d="M2,6 L14,6 M10,2 L16,6 L10,10" stroke="#fff" fill="none" strokeWidth="2" /></svg> Flow direction</div>
+              {sch.sources.length > 0 && <div><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="2" fill={C.yard} stroke="#aaa" /></svg> Miner / extractor / supply (outside the wall, at the nodes)</div>}
             </div>
           </section>
           <section className="card">
@@ -202,7 +245,7 @@ function Defs({ sch }: { sch: Schematic }) {
 }
 const markerId = (c: string) => 'arr-' + c.replace(/[^a-z0-9]/gi, '');
 
-function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions }) {
+function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: SchematicOptions; sources: SourceBox[] }) {
   const W = fl.width * s;
   const H = fl.height * s;
   const cols = fl.width / F;
@@ -216,11 +259,11 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
       {/* foundation grid */}
       {Array.from({ length: cols + 1 }, (_, i) => <line key={'c' + i} x1={i * F * s} x2={i * F * s} y1={0} y2={H} stroke={i % 5 === 0 ? C.grid5 : C.grid} strokeWidth={1} />)}
       {Array.from({ length: rows + 1 }, (_, i) => <line key={'r' + i} y1={i * F * s} y2={i * F * s} x1={0} x2={W} stroke={i % 5 === 0 ? C.grid5 : C.grid} strokeWidth={1} />)}
-      {s >= 4 && Array.from({ length: cols }, (_, i) => <text key={'cn' + i} x={(i + 0.5) * F * s} y={-4} fontSize={9} fill={C.muted} textAnchor="middle">{colName(i)}</text>)}
-      {s >= 4 && Array.from({ length: rows }, (_, i) => <text key={'rn' + i} x={-4} y={(i + 0.5) * F * s + 3} fontSize={9} fill={C.muted} textAnchor="end">{i + 1}</text>)}
+      {s >= 4 && Array.from({ length: cols }, (_, i) => <T key={'cn' + i} x={(i + 0.5) * F * s} y={-4} fontSize={9} fill={C.muted} textAnchor="middle">{colName(i)}</T>)}
+      {s >= 4 && Array.from({ length: rows }, (_, i) => <T key={'rn' + i} x={-4} y={(i + 0.5) * F * s + 3} fontSize={9} fill={C.muted} textAnchor="end">{i + 1}</T>)}
 
       {fl.bus && <rect x={fl.bus.x * s} y={0} width={fl.bus.w * s} height={H} fill={C.bus} opacity={0.8} />}
-      {fl.bus && <text x={(fl.bus.x + fl.bus.w / 2) * s} y={H - 6} fontSize={10} fill={C.muted} textAnchor="middle">BUS</text>}
+      {fl.bus && <T x={(fl.bus.x + fl.bus.w / 2) * s} y={H - 6} fontSize={10} fill={C.muted} textAnchor="middle">BUS</T>}
 
       {/* hidden logistics first, faded */}
       <g opacity={0.45}>{hidden.map((b, k) => <Belt key={k} b={b} s={s} dashed />)}</g>
@@ -229,9 +272,9 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
         <g key={r.id}>
           <rect x={r.x * s} y={r.y * s} width={r.w * s} height={r.h * s} fill={C.row} stroke={C.grid5} strokeDasharray="4 3" />
           {o.showLabels && (
-            <text x={(r.x + r.w) * s + 6} y={(r.y + r.h / 2) * s + 4} fontSize={11} fill={C.text}>
+            <T x={(r.x + r.w) * s + 6} y={(r.y + r.h / 2) * s + 4} fontSize={11} fill={C.text}>
               {r.count} × {r.machine.name} · {r.recipe.name} @ {fmt(r.clock, 2)}%
-            </text>
+            </T>
           )}
         </g>
       ))}
@@ -246,10 +289,10 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
             {m.inPorts.map((p, k) => <path key={'i' + k} d={`M${p.x * s - 4},${p.y * s - 1} L${p.x * s + 4},${p.y * s - 1} L${p.x * s},${p.y * s + 6} z`} fill={itemColor(p.item)} stroke="#000" strokeWidth={0.8} />)}
             {m.outPorts.map((p, k) => <path key={'o' + k} d={`M${p.x * s - 4},${p.y * s - 6} L${p.x * s + 4},${p.y * s - 6} L${p.x * s},${p.y * s + 1} z`} fill={itemColor(p.item)} stroke="#000" strokeWidth={0.8} />)}
             {o.showLabels && s >= 4 && (
-              <text x={(m.x + m.w / 2) * s} y={(m.y + m.l / 2) * s + 3} fontSize={Math.min(11, m.w * s / 6)} fill="#0b0d10" textAnchor="middle" fontWeight={700}>
+              <T x={(m.x + m.w / 2) * s} y={(m.y + m.l / 2) * s + 3} fontSize={Math.min(11, m.w * s / 6)} fill="#0b0d10" textAnchor="middle" fontWeight={700}>
                 {short(m.machine.name)} {m.index}
                 {s >= 6 && <tspan x={(m.x + m.w / 2) * s} dy={12} fontWeight={400}>{fmt(m.clock, 1)}%</tspan>}
-              </text>
+              </T>
             )}
           </g>
         );
@@ -261,7 +304,7 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
         const vertical = Math.abs(a.x - c.x) < 0.1;
         const label = `${itemName(b.item)} ${fmt(b.rate, 1)}${b.fluid ? 'm³' : ''}/min · ${b.lanes > 1 ? b.lanes + '× ' : ''}${b.tier.replace('Conveyor Belt ', 'Belt ').replace('Pipeline ', 'Pipe ')}`;
         if (vertical) return null;
-        return <text key={'lbl' + k} x={(Math.min(a.x, c.x) + 2) * s + (b.kind === 'manifold' ? 40 : 0)} y={a.y * s - 3} fontSize={9} fill={C.text} opacity={b.hidden ? 0.7 : 1} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{label}</text>;
+        return <T key={'lbl' + k} x={(Math.min(a.x, c.x) + 2) * s + (b.kind === 'manifold' ? 40 : 0)} y={a.y * s - 3} fontSize={9} fill={C.text} opacity={b.hidden ? 0.7 : 1} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{label}</T>;
       })}
 
       {fl.markers.map((m, k) => {
@@ -275,7 +318,7 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
           case 'lift': return (
             <g key={k}>
               <circle cx={x} cy={y} r={Math.max(6, 1.6 * s)} fill={C.bg} stroke={itemColor(m.item!)} strokeWidth={2.5} />
-              <text x={x} y={y + 3} fontSize={9} fill={C.text} textAnchor="middle">{m.label}</text>
+              <T x={x} y={y + 3} fontSize={9} fill={C.text} textAnchor="middle">{m.label}</T>
               <title>{`${isFluid(m.item!) ? 'Vertical pipe' : 'Conveyor lift'}: ${itemName(m.item!)}`}</title>
             </g>
           );
@@ -304,21 +347,12 @@ function FloorDrawing({ fl, s, o }: { fl: Floor; s: number; o: SchematicOptions 
         return (
           <g key={'p' + k}>
             <path d={up ? `M${x - 7},${y - 8} L${x + 7},${y - 8} L${x},${y + 4} z` : `M${x - 7},${y - 4} L${x + 7},${y - 4} L${x},${y + 8} z`} fill={itemColor(p.item)} stroke="#fff" strokeWidth={1.2} />
-            <text x={x + 10} y={y + 4 + (fl.ports.filter((q) => q.dir === p.dir).indexOf(p)) * 12 * (up ? 1 : -1)} fontSize={10} fill={C.text} fontWeight={600} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{p.label} {fmt(p.rate, 1)}{isFluid(p.item) ? ' m³' : ''}/min</text>
+            <T x={x + 10} y={y + 4 + (fl.ports.filter((q) => q.dir === p.dir).indexOf(p)) * 12 * (up ? 1 : -1)} fontSize={10} fill={C.text} fontWeight={600} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{p.label} {fmt(p.rate, 1)}{isFluid(p.item) ? ' m³' : ''}/min</T>
           </g>
         );
       })}
 
-      {/* scale bar + north arrow */}
-      <g transform={`translate(${W - 5 * F * s - 10}, ${H + 18})`}>
-        <rect width={5 * F * s} height={4} fill={C.muted} />
-        <text x={0} y={-3} fontSize={9} fill={C.muted}>0</text>
-        <text x={5 * F * s} y={-3} fontSize={9} fill={C.muted} textAnchor="end">40 m (5 foundations)</text>
-      </g>
-      <g transform={`translate(${W + 14}, 14)`}>
-        <path d="M0,-10 L6,6 L0,2 L-6,6 z" fill={C.text} />
-        <text y={18} fontSize={9} fill={C.text} textAnchor="middle">N</text>
-      </g>
+      {sources.map((b, k) => <Yard key={'src' + k} b={b} s={s} />)}
     </g>
   );
 }
@@ -342,3 +376,66 @@ function Belt({ b, s, dashed }: { b: BeltPath; s: number; dashed?: boolean }) {
 
 const short = (name: string) =>
   ({ 'Particle Accelerator': 'P.Acc', 'Quantum Encoder': 'Q.Enc', Manufacturer: 'Manuf', Constructor: 'Constr', Assembler: 'Assem' } as Record<string, string>)[name] ?? name;
+
+const ANGLE: Record<Facing, number> = { N: 0, E: 90, S: 180, W: 270 };
+const FACING_NAME: Record<Facing, string> = { N: 'north', E: 'east', S: 'south', W: 'west' };
+
+/** How far the plan is turned, so text inside it can be turned back upright. */
+const RotCtx = createContext(0);
+function T({ x, y, ...rest }: SVGProps<SVGTextElement> & { x: number; y: number }) {
+  const a = useContext(RotCtx);
+  return <text x={x} y={y} transform={a ? `rotate(${-a} ${x} ${y})` : undefined} {...rest} />;
+}
+
+interface Box { x0: number; y0: number; x1: number; y1: number }
+/** The floor's drawing area in px before turning: plan, yard above it (ground floor), labels around it. */
+function floorBox(fl: Floor, sch: Schematic, s: number, o: SchematicOptions): Box {
+  const yard = fl.index === 0 ? sch.yardH : 0;
+  const yardW = fl.index === 0 && sch.sources.length ? Math.max(...sch.sources.map((b) => b.x + b.w)) : 0;
+  return { x0: -30, y0: -yard * s - 18, x1: Math.max(fl.width, yardW) * s + (o.showLabels ? 320 : 30), y1: fl.height * s + 12 };
+}
+/** The same box after rotate(angle) about the origin. */
+function turned(b: Box, a: number): Box {
+  if (a === 90) return { x0: -b.y1, y0: b.x0, x1: -b.y0, y1: b.x1 };
+  if (a === 180) return { x0: -b.x1, y0: -b.y1, x1: -b.x0, y1: -b.y0 };
+  if (a === 270) return { x0: b.y0, y0: -b.x1, x1: b.y1, y1: -b.x0 };
+  return b;
+}
+
+/** Scale bar and a north arrow (north is always up; the plan is what turns). */
+function Compass({ x, y, s, facing }: { x: number; y: number; s: number; facing: Facing }) {
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <rect width={5 * F * s} height={4} fill={C.muted} />
+      <text x={0} y={-3} fontSize={9} fill={C.muted}>0</text>
+      <text x={5 * F * s} y={-3} fontSize={9} fill={C.muted} textAnchor="end">40 m (5 foundations)</text>
+      <g transform={`translate(${5 * F * s + 30}, 0)`}>
+        <path d="M0,-12 L6,4 L0,0 L-6,4 z" fill={C.text} />
+        <text y={14} fontSize={9} fill={C.text} textAnchor="middle">N</text>
+      </g>
+      <text x={5 * F * s + 52} y={4} fontSize={10} fill={C.muted}>inputs come in from the {FACING_NAME[facing]}</text>
+    </g>
+  );
+}
+
+/** A miner, extractor group or other supply in the yard, wired to its input port. */
+function Yard({ b, s }: { b: SourceBox; s: number }) {
+  const color = itemColor(b.item);
+  const d = b.wire.map((p, i) => `${i ? 'L' : 'M'}${p.x * s},${p.y * s}`).join(' ');
+  const lines = [b.title, ...b.lines];
+  const cx = (b.x + b.w / 2) * s;
+  const cy = (b.y + b.h / 2) * s;
+  const dashed = b.kind === 'import' || b.kind === 'outside';
+  return (
+    <g>
+      <path d={d} fill="none" stroke={color} strokeWidth={Math.max(2, 1.1 * s) * (isFluid(b.item) ? 1.3 : 1)} strokeDasharray={dashed ? `${2 * s} ${1.5 * s}` : undefined} markerEnd={`url(#${markerId(color)})`} />
+      {isFluid(b.item) && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, 0.5 * s)} />}
+      <rect x={b.x * s} y={b.y * s} width={b.w * s} height={b.h * s} rx={4} fill={C.yard} stroke={color} strokeWidth={2} strokeDasharray={dashed ? '6 4' : undefined}>
+        <title>{lines.join('\n')}</title>
+      </rect>
+      <T x={cx} y={cy} fontSize={Math.max(8, Math.min(11, s * 1.8))} fill={C.text} textAnchor="middle">
+        {lines.map((l, i) => <tspan key={i} x={cx} dy={i === 0 ? -((lines.length - 1) * 12) / 2 + 3 : 12} fontWeight={i === 0 ? 700 : 400} fill={i === 0 ? C.text : C.muted}>{l}</tspan>)}
+      </T>
+    </g>
+  );
+}

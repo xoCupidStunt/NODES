@@ -101,7 +101,7 @@ describe.skipIf(!realSave)('combine and separate with a real save', () => {
     const make = (n: number) => ({
       id: 'f' + n + Math.random(), name: `F${n}`, target: '', rate: 1, mode: 'power' as const, placement: 'manual' as const, location: null,
       nodes: [], extraSupply: {}, also: [], imports: [], excluded: [], unlimitedRaw: false, clockCap: 100, useShards: false,
-      schematic: { machineGap: 0, rowGap: 1, floors: 1, maxPerRow: 10, logistics: 'visible' as const, perimeterWalls: true, border: 1, snap: 'half' as const, showLabels: true, showRates: true, showPower: true },
+      schematic: { machineGap: 0, rowGap: 1, floors: 1, maxPerRow: 10, logistics: 'visible' as const, perimeterWalls: true, border: 1, snap: 'half' as const, showLabels: true, showRates: true, showPower: true, orientation: 'auto' as const },
       createdAt: 0,
     });
     const a = { ...make(1), ...factoryFromFound(found[1]) };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as RPE, type WheelEvent as RWE } from 'react';
-import { nodes, RAW_ITEMS, WORLD } from '../data/game';
+import { isFluid, itemColor, itemName, nodeKind, nodes, RAW_ITEMS, wellOf, wells, WORLD, type ResourceNode, type ResourceWell } from '../data/game';
 import { MapImageLayer } from './mapImage';
 
 export const SIZE = { w: WORLD.maxX - WORLD.minX, h: WORLD.maxY - WORLD.minY };
@@ -76,6 +76,84 @@ export function usePanZoom(initial: ViewBox = FULL_VIEW) {
   return { svgRef, vb, setVb, h, pxToWorld, hover, handlers, focus, wasClick, viewBox: `${vb.x} ${vb.y} ${vb.w} ${h}` };
 }
 
+/**
+ * One resource node. Shape says the type (circle = miner or oil node, diamond = resource well satellite,
+ * triangle = geyser); size and outline say the purity (impure: small, dashed · normal · pure: large, double ring).
+ */
+export function NodeShape({ n, r, px, fill }: { n: ResourceNode; r: number; px: number; fill: string }) {
+  const stroke = 0.6 * px;
+  const body = n.type === 'well'
+    ? <rect x={n.x - r * 0.8} y={n.y - r * 0.8} width={r * 1.6} height={r * 1.6} transform={`rotate(45 ${n.x} ${n.y})`} fill={fill} stroke="#000" strokeWidth={stroke} />
+    : n.type === 'geyser'
+      ? <path d={`M${n.x},${n.y - r * 1.1} L${n.x + r},${n.y + r * 0.8} L${n.x - r},${n.y + r * 0.8} z`} fill={fill} stroke="#000" strokeWidth={stroke} />
+      : <circle cx={n.x} cy={n.y} r={r} fill={fill} stroke="#000" strokeWidth={stroke} />;
+  return (
+    <>
+      {body}
+      {n.purity === 'pure' && <circle cx={n.x} cy={n.y} r={r + 1.8 * px} fill="none" stroke="#fff" strokeWidth={1.1 * px} opacity={0.85} />}
+      {n.purity === 'impure' && <circle cx={n.x} cy={n.y} r={r + 1.4 * px} fill="none" stroke="#fff" strokeWidth={0.9 * px} strokeDasharray={`${1.5 * px} ${1.5 * px}`} opacity={0.6} />}
+    </>
+  );
+}
+
+/** Resource wells: a dashed ring around each well's satellites and a hexagon where its Pressurizer goes. */
+export function WellLayer({ px, show, onHover }: { px: number; show: (item: string) => boolean; onHover?: (w: ResourceWell | null, e?: { clientX: number; clientY: number }) => void }) {
+  return (
+    <>
+      {wells.filter((w) => show(w.item)).map((w) => {
+        const hex = Math.max(900, 6 * px);
+        const pts = Array.from({ length: 6 }, (_, k) => `${w.x + hex * Math.cos((Math.PI / 3) * k)},${w.y + hex * Math.sin((Math.PI / 3) * k)}`).join(' ');
+        return (
+          <g key={w.id} className="well" onPointerEnter={(e) => onHover?.(w, e)} onPointerMove={(e) => onHover?.(w, e)} onPointerLeave={() => onHover?.(null)}>
+            <circle cx={w.x} cy={w.y} r={w.radius + 2500} fill={itemColor(w.item)} fillOpacity={0.08} stroke={itemColor(w.item)} strokeWidth={1.4 * px} strokeDasharray={`${5 * px} ${3 * px}`} />
+            <polygon points={pts} fill="#0b0e12" stroke={itemColor(w.item)} strokeWidth={2 * px} />
+            <circle cx={w.x} cy={w.y} r={hex * 0.35} fill={itemColor(w.item)} />
+          </g>
+        );
+      })}
+    </>
+  );
+}
+
+/** Text for hovering a node: what it is, its purity, and what it gives with your best extractor. */
+export function nodeTip(n: ResourceNode, rate?: number) {
+  const w = wellOf[n.id];
+  return {
+    title: `${itemName(n.item)} — ${n.purity}`,
+    lines: [
+      nodeKind(n) + (w ? ` (well with ${w.satellites.length} satellites)` : ''),
+      rate !== undefined ? (rate > 0 ? `${fmtRate(rate)}${isFluid(n.item) ? ' m³' : ''}/min at 100% with your best extractor` : 'No extractor unlocked for it yet') : '',
+    ].filter(Boolean),
+  };
+}
+
+/** Text for hovering a resource well. */
+export function wellTip(w: ResourceWell, rateOf?: (n: ResourceNode) => number) {
+  const by = (p: ResourceNode['purity']) => w.satellites.filter((n) => n.purity === p).length;
+  const total = rateOf ? w.satellites.reduce((a, n) => a + rateOf(n), 0) : 0;
+  return {
+    title: `${itemName(w.item)} resource well`,
+    lines: [
+      `${w.satellites.length} satellites: ${[['pure', by('pure')], ['normal', by('normal')], ['impure', by('impure')]].filter(([, c]) => c).map(([p, c]) => `${c} ${p}`).join(', ')}`,
+      ...(total > 0 ? [`Up to ${fmtRate(total)} m³/min with every satellite tapped at 100%`] : []),
+      'Needs a Resource Well Pressurizer at the centre (hexagon)',
+    ],
+  };
+}
+
+const fmtRate = (v: number) => (Math.round(v * 10) / 10).toLocaleString();
+
+/** A small card that follows the cursor. */
+export function MapTip({ at, title, lines }: { at: { x: number; y: number }; title: string; lines: string[] }) {
+  return (
+    // Flip to the other side of the cursor near the window's right or bottom edge.
+    <div className="map-tip" style={at.x > window.innerWidth - 320 ? { right: window.innerWidth - at.x + 14, top: Math.min(at.y + 14, window.innerHeight - 110) } : { left: at.x + 14, top: Math.min(at.y + 14, window.innerHeight - 110) }}>
+      <b>{title}</b>
+      {lines.map((l) => <div key={l}>{l}</div>)}
+    </div>
+  );
+}
+
 /** World background: dark land, the optional map picture, 1 km grid. */
 export function MapBackdrop({ pxToWorld }: { pxToWorld: number }) {
   const gx: number[] = [];
@@ -88,6 +166,20 @@ export function MapBackdrop({ pxToWorld }: { pxToWorld: number }) {
       <MapImageLayer />
       {gx.map((g) => <line key={'x' + g} x1={g} x2={g} y1={WORLD.minY} y2={WORLD.maxY} className="map-grid" strokeWidth={pxToWorld} />)}
       {gy.map((g) => <line key={'y' + g} y1={g} y2={g} x1={WORLD.minX} x2={WORLD.maxX} className="map-grid" strokeWidth={pxToWorld} />)}
+    </>
+  );
+}
+
+/** Legend for node shapes, purity and wells. */
+export function NodeLegend() {
+  const dot = (p: ResourceNode['purity'], type: ResourceNode['type'] = 'node') => (
+    <svg width="18" height="18" viewBox="-9 -9 18 18"><NodeShape n={{ id: '', item: '', purity: p, type, x: 0, y: 0, z: 0 }} r={5 * PURITY_R[p]} px={1} fill="#aaa" /></svg>
+  );
+  return (
+    <>
+      <div>{dot('impure')} impure · {dot('normal')} normal · {dot('pure')} pure</div>
+      <div>{dot('normal')} miner / oil node · {dot('normal', 'well')} well satellite · {dot('normal', 'geyser')} geyser</div>
+      <div><svg width="18" height="18" viewBox="-9 -9 18 18"><circle r="8" fill="#aaa" fillOpacity="0.15" stroke="#aaa" strokeDasharray="3 2" /><polygon points="4,0 2,3.5 -2,3.5 -4,0 -2,-3.5 2,-3.5" fill="#0b0e12" stroke="#aaa" /></svg> resource well (hexagon = Pressurizer spot)</div>
     </>
   );
 }

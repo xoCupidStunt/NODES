@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { itemColor, nodes } from '../data/game';
 import type { FoundFactory } from '../engine/gameFactories';
-import { nodeById } from '../engine/plan';
+import { nodeById, nodeRate } from '../engine/plan';
+import { computeUnlocks } from '../engine/progression';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { foundName, Makes, useFoundFactories } from './GameFactoriesCard';
 import { MapImageCard } from './mapImage';
-import { FULL_VIEW, MapBackdrop, PURITY_R, usePanZoom } from './mapKit';
+import { FULL_VIEW, MapBackdrop, MapTip, NodeLegend, NodeShape, nodeTip, PURITY_R, usePanZoom, WellLayer, wellTip } from './mapKit';
 import { amountName, fmt, ItemTag, mw } from './ui';
 
 type Sel = { kind: 'found' | 'factory'; id: string } | null;
@@ -22,6 +23,13 @@ export function WorldMap() {
   const [showFound, setShowFound] = useState(true);
   const [showSmall, setShowSmall] = useState(false);
   const [hoverName, setHoverName] = useState<string | null>(null);
+  const [tip, setTip] = useState<{ at: { x: number; y: number }; title: string; lines: string[] } | null>(null);
+  const u = useMemo(() => computeUnlocks(state.progress), [state.progress]);
+  const minerOf = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const f of state.factories) for (const id of f.nodes) m[id] = f.name;
+    return m;
+  }, [state.factories]);
 
   const inGame = useMemo(() => new Set(state.game?.occupied ?? []), [state.game]);
   const notAdded = found.filter((ff) => !byFound.has(ff.key) && (showSmall || !small(ff)));
@@ -111,6 +119,7 @@ export function WorldMap() {
             {state.game && <label className="check"><input type="checkbox" checked={showFound} onChange={(e) => setShowFound(e.target.checked)} /> Game factories not added yet</label>}
             {state.game && <label className="check"><input type="checkbox" checked={showSmall} onChange={(e) => setShowSmall(e.target.checked)} /> Include small setups (1–2 machines)</label>}
             <div className="legend small-text">
+              {showNodes && <NodeLegend />}
               <div><span className="wmark planner" /> factory in the planner</div>
               <div><span className="wmark linked" /> linked to your game</div>
               {state.game && <div><span className="wmark found" /> built in game, not added</div>}
@@ -125,14 +134,22 @@ export function WorldMap() {
           <svg ref={map.svgRef} className="map" viewBox={map.viewBox} {...map.handlers} onPointerUp={(e) => { if (map.wasClick() && e.target === e.currentTarget) setSel(null); map.handlers.onPointerUp(); }}>
             <MapBackdrop pxToWorld={px} />
 
+            {showNodes && <WellLayer px={px} show={() => true} onHover={(w, e) => setTip(w && e ? { at: { x: e.clientX, y: e.clientY }, ...wellTip(w, (n) => nodeRate(n, u)) } : null)} />}
             {showNodes && nodes.map((n) => {
               const mined = inGame.has(n.id);
               if (!showMined && mined) return null;
               const r = Math.max(700, 4 * px) * PURITY_R[n.purity];
               return (
-                <g key={n.id} opacity={mined ? 0.9 : 0.45} pointerEvents="none">
+                <g key={n.id} opacity={mined ? 0.9 : 0.55} className="node"
+                  onPointerMove={(e) => {
+                    const t = nodeTip(n, nodeRate(n, u));
+                    if (minerOf[n.id]) t.lines.push(`Claimed by ${minerOf[n.id]}`);
+                    else if (mined) t.lines.push('Mined in your game');
+                    setTip({ at: { x: e.clientX, y: e.clientY }, ...t });
+                  }}
+                  onPointerLeave={() => setTip(null)}>
                   {mined && showMined && <rect x={n.x - r - 4 * px} y={n.y - r - 4 * px} width={2 * r + 8 * px} height={2 * r + 8 * px} fill="none" stroke="#38bdf8" strokeWidth={1.2 * px} />}
-                  <circle cx={n.x} cy={n.y} r={r} fill={itemColor(n.item)} />
+                  <NodeShape n={n} r={r} px={px} fill={itemColor(n.item)} />
                 </g>
               );
             })}
@@ -184,6 +201,7 @@ export function WorldMap() {
               );
             })}
           </svg>
+          {tip && <MapTip {...tip} />}
           <div className="map-hud">
             <span>{hoverName ?? (map.hover ? `x ${fmt(map.hover.x / 100, 0)} m, y ${fmt(map.hover.y / 100, 0)} m · scroll to zoom, drag to pan` : 'Scroll to zoom, drag to pan. Grid squares are 1 km.')}</span>
             <button className="small ghost" onClick={() => map.setVb(FULL_VIEW)}>Reset view</button>

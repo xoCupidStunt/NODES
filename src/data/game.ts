@@ -55,6 +55,38 @@ interface GameData {
 export const game = raw as unknown as GameData;
 export const nodes = nodesRaw as ResourceNode[];
 
+/** A resource well: one Pressurizer in the middle powers the satellite nodes around it. */
+export interface ResourceWell { id: string; item: string; x: number; y: number; radius: number; satellites: ResourceNode[] }
+
+/**
+ * The node data has the satellites but not the well cores, so satellites of the same resource within
+ * 100 m of each other are grouped into one well (17 in the base game: 8 water, 6 nitrogen, 3 crude oil)
+ * and the core is placed at their centre.
+ */
+export const wells: ResourceWell[] = (() => {
+  const sats = nodes.filter((n) => n.type === 'well');
+  const parent = sats.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < sats.length; i++) {
+    for (let j = i + 1; j < sats.length; j++) {
+      if (sats[i].item === sats[j].item && Math.hypot(sats[i].x - sats[j].x, sats[i].y - sats[j].y) < 10000) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map<number, ResourceNode[]>();
+  sats.forEach((n, i) => groups.set(find(i), [...(groups.get(find(i)) ?? []), n]));
+  return [...groups.values()].map((list, k) => {
+    const x = list.reduce((a, n) => a + n.x, 0) / list.length;
+    const y = list.reduce((a, n) => a + n.y, 0) / list.length;
+    const radius = Math.max(...list.map((n) => Math.hypot(n.x - x, n.y - y)));
+    return { id: `well-${k}`, item: list[0].item, x, y, radius, satellites: list };
+  });
+})();
+/** Satellite node id → its well. */
+export const wellOf: Record<string, ResourceWell> = Object.fromEntries(wells.flatMap((w) => w.satellites.map((n) => [n.id, w])));
+
+/** "Miner node", "Resource well satellite" or "Geyser". */
+export const nodeKind = (n: ResourceNode) => (n.type === 'well' ? 'Resource well satellite' : n.type === 'geyser' ? 'Geyser' : isFluid(n.item) ? 'Oil node' : 'Miner node');
+
 export const items = game.items;
 export const recipes = game.recipes;
 export const machines = game.machines;

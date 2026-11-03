@@ -104,3 +104,30 @@ describe('suggestions with what is available', () => {
     expect(avail.every((t) => !/Unlock|Research|Mk\.3|hard drive/i.test(t.title + t.detail))).toBe(true);
   });
 });
+
+describe('schematic orientation and extraction yard', () => {
+  it('turns the input wall toward the supply and lists each source', async () => {
+    const { nodes } = await import('../../data/game');
+    const { facingFor } = await import('../schematic');
+    const iron = nodes.find((n) => n.item === 'Desc_OreIron_C' && n.type === 'node')!;
+    const f = factory({ target: 'Desc_IronPlate_C', rate: 20, unlimitedRaw: false, nodes: [iron.id], location: { x: iron.x - 40000, y: iron.y } });
+    const p = buildPlan(f, progress(4));
+    const ctx = { location: f.location, imports: [] };
+    expect(facingFor(p, ctx).facing).toBe('E');
+    const sch = buildSchematic(p, { ...defaultSchematic }, f.target, ctx);
+    expect(sch.facing).toBe('E');
+    const miner = sch.sources.find((s) => s.kind === 'extractor')!;
+    expect(miner.title).toMatch(/Miner/);
+    expect(miner.lines.join(' ')).toMatch(/400 m E/);
+    expect(miner.y).toBeLessThan(0); // outside the input wall
+    expect(sch.bom.some((b) => /Miner .*at the nodes/.test(b.name))).toBe(true);
+    // A fixed side wins over the automatic one.
+    expect(buildSchematic(p, { ...defaultSchematic, orientation: 'S' }, f.target, ctx).facing).toBe('S');
+  });
+
+  it('groups resource well satellites into 17 wells', async () => {
+    const { wells } = await import('../../data/game');
+    expect(wells.length).toBe(17);
+    expect(wells.every((w) => w.satellites.length >= 6)).toBe(true);
+  });
+});

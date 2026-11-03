@@ -1,5 +1,5 @@
 import {
-  extractors, isFluid, itemName, machines, nodes, perMinute, PURITY_MULT, recipes, WATER,
+  extractors, isFluid, itemName, machines, nodes, perMinute, PURITY_MULT, recipes, WATER, wellOf, wells,
   type Extractor, type Machine, type Recipe, type ResourceNode, type Transport, isPower, POWER } from '../data/game';
 import { availableBelts, availablePipes, bestMiner, computeUnlocks, type Progress, type Unlocks } from './progression';
 import { recipePower, solvePlan, type SolveResult } from './solver';
@@ -279,12 +279,11 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     if (left > 1e-6) inputs.push({ item, rate: left, source: 'unlimited', note: 'no node claimed yet' });
   }
   // Each resource well cluster needs one pressurizer.
-  const wellSites = extraction.filter((e) => e.node?.type === 'well');
-  const clusters: ResourceNode[] = [];
-  for (const w of wellSites) if (!clusters.some((c) => Math.hypot(c.x - w.node!.x, c.y - w.node!.y) < 20000)) clusters.push(w.node!);
-  for (const c of clusters) {
+  const tapped = new Set(extraction.map((e) => (e.node ? wellOf[e.node.id]?.id : undefined)).filter((x): x is string => !!x));
+  for (const w of wells.filter((x) => tapped.has(x.id))) {
     const p = extractors.Build_FrackingSmasher_C;
-    extraction.push({ item: c.item, node: c, extractor: p, count: 1, clock: 100, rate: 0, power: p.power });
+    const core: ResourceNode = { id: w.id, item: w.item, purity: 'normal', type: 'well', x: Math.round(w.x), y: Math.round(w.y), z: 0 };
+    extraction.push({ item: w.item, node: core, extractor: p, count: 1, clock: 100, rate: 0, power: p.power });
   }
 
   const machinePower = groups.reduce((a, g) => a + g.power, 0);

@@ -18,6 +18,8 @@ export interface SchematicOptions {
   showLabels: boolean;
   showRates: boolean;
   showPower: boolean;
+  /** Which side inputs come in from: worked out from where nodes and supplying factories are, or fixed. */
+  orientation: 'auto' | 'N' | 'E' | 'S' | 'W';
 }
 
 export const defaultSchematic: SchematicOptions = {
@@ -32,6 +34,7 @@ export const defaultSchematic: SchematicOptions = {
   showLabels: true,
   showRates: true,
   showPower: true,
+  orientation: 'auto',
 };
 
 export interface Import { factoryId: string; item: string; rate: number }

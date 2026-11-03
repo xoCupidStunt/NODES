@@ -42,12 +42,32 @@ export interface Floor {
   bus: { x: number; w: number } | null;
 }
 export interface BOMLine { name: string; count: number; unit?: string }
+export type Facing = 'N' | 'E' | 'S' | 'W';
+/** Where an input comes from, drawn in the yard outside the input wall and wired to its port. */
+export interface SourceBox {
+  x: number; y: number; w: number; h: number;
+  kind: 'extractor' | 'water' | 'well' | 'import' | 'outside';
+  item: string; rate: number; title: string; lines: string[];
+  /** Path from the box to the input port on the ground floor. */
+  wire: Pt[];
+}
+/** Where the factory is and who supplies it, so sources get distances and directions. */
+export interface SchematicContext {
+  location: Pt | null;
+  imports: { name: string; item: string; rate: number; at: Pt | null }[];
+}
 export interface Schematic {
   floors: Floor[];
   width: number; height: number; // metres, same for all floors
   lanes: { item: string; x: number; fluid: boolean }[];
   bom: BOMLine[];
   notes: string[];
+  /** Extraction yard on the input side of the ground floor (y < 0 in layout coordinates). */
+  sources: SourceBox[];
+  yardH: number;
+  /** The compass side the input wall faces. The layout is drawn inputs-at-top and turned to this. */
+  facing: Facing;
+  facingWhy: string;
 }
 
 const LANE = 3; // metres between bus lanes
@@ -59,7 +79,34 @@ function snap(v: number, mode: SchematicOptions['snap']) {
 }
 const toF = (m: number) => Math.ceil(m / F - 1e-9) * F;
 
-export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string): Schematic {
+/** World direction from a to b as an 8-point compass label (map y points south). */
+export function bearing(a: Pt, b: Pt) {
+  const deg = (Math.atan2(b.x - a.x, -(b.y - a.y)) * 180) / Math.PI;
+  return ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][((Math.round(deg / 45) % 8) + 8) % 8];
+}
+const metres = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y) / 100;
+const distText = (m: number) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+const FACING_NAME: Record<Facing, string> = { N: 'north', E: 'east', S: 'south', W: 'west' };
+
+/** The side most input arrives from, weighted by rate (water pumped on site doesn't count). */
+export function facingFor(plan: Plan, ctx?: SchematicContext): { facing: Facing; why: string } {
+  const at = ctx?.location;
+  if (!at) return { facing: 'N', why: 'The factory isn’t placed yet, so inputs are drawn coming in from the north.' };
+  let vx = 0, vy = 0, total = 0, onSite = 0;
+  const add = (p: Pt, rate: number) => {
+    const d = Math.hypot(p.x - at.x, p.y - at.y);
+    if (rate <= 0) return;
+    if (d < 1500) { onSite += rate; return; } // within 15 m: right at the factory
+    vx += ((p.x - at.x) / d) * rate; vy += ((p.y - at.y) / d) * rate; total += rate;
+  };
+  for (const e of plan.extraction) if (e.node && e.rate > 0) add(e.node, e.rate);
+  for (const imp of ctx?.imports ?? []) if (imp.at) add(imp.at, imp.rate);
+  if (!total) return { facing: 'N', why: onSite ? 'Its supply is right at the factory’s spot, so inputs are drawn coming in from the north.' : 'No located nodes or supplying factories yet, so inputs are drawn coming in from the north.' };
+  const facing: Facing = Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 'E' : 'W') : vy > 0 ? 'S' : 'N';
+  return { facing, why: `Turned so the input wall faces ${FACING_NAME[facing]}, where most of its supply comes from.` };
+}
+
+export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string, ctx?: SchematicContext): Schematic {
   const notes: string[] = [];
   const u = plan.unlocks;
   const belt = availableBelts(u).at(-1)!;
@@ -145,6 +192,86 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
     const t = list.find((b) => b.rate >= rate - 1e-6) ?? list[list.length - 1];
     return { tier: t.name, lanes: Math.max(1, Math.ceil(rate / t.rate - 1e-6)) };
   };
+
+  // ---- extraction yard: where each input comes from, outside the input wall ----
+  const portTopY = border + 2;
+  const BOX_W = 4 * F;
+  const BOX_H = 4 * F; // square, so it reads the same when the plan is turned
+  const YARD_GAP = 4;
+  type Src = Omit<SourceBox, 'x' | 'y' | 'w' | 'h' | 'wire'>;
+  const srcs: Src[] = [];
+  const at = ctx?.location ?? null;
+  const where = (pts: Pt[]) => {
+    if (!at || !pts.length) return '';
+    const ds = pts.map((p) => metres(at, p));
+    const c = { x: pts.reduce((a, p) => a + p.x, 0) / pts.length, y: pts.reduce((a, p) => a + p.y, 0) / pts.length };
+    const lo = Math.min(...ds), hi = Math.max(...ds);
+    if (hi < 15) return 'at the factory';
+    return `${Math.abs(hi - lo) < 50 ? distText(hi) : `${distText(lo)}–${distText(hi)}`} ${bearing(at, c)}`;
+  };
+  const rateTxt = (item: string, v: number) => `${Math.round(v * 10) / 10}${isFluid(item) ? ' m³' : ''}/min`;
+  const byKey = new Map<string, typeof plan.extraction>();
+  for (const e of plan.extraction) {
+    const key = e.extractor.kind === 'pressurizer' || e.extractor.kind === 'well' ? `well|${e.item}` : `${e.extractor.id}|${e.item}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), e]);
+  }
+  for (const [key, list] of byKey) {
+    const item = list[0].item;
+    const rate = list.reduce((a, e) => a + e.rate, 0);
+    if (key.startsWith('well|')) {
+      const sats = list.filter((e) => e.extractor.kind === 'well');
+      const press = list.filter((e) => e.extractor.kind === 'pressurizer').length;
+      srcs.push({
+        kind: 'well', item, rate,
+        title: `${sats.length} × Well Extractor${press ? ` + ${press} Pressurizer${press > 1 ? 's' : ''}` : ''}`,
+        lines: [`${itemName(item)} well · ${rateTxt(item, rate)}`, where(sats.map((e) => e.node!))].filter(Boolean),
+      });
+      continue;
+    }
+    const ex = list[0].extractor;
+    const count = list.reduce((a, e) => a + e.count, 0);
+    if (!list[0].node) {
+      srcs.push({ kind: 'water', item, rate, title: `${count} × ${ex.name}`, lines: [`${itemName(item)} · ${rateTxt(item, rate)}`, 'on site, any water'] });
+      continue;
+    }
+    const pur = (['pure', 'normal', 'impure'] as const).map((p) => [p, list.filter((e) => e.node!.purity === p).length] as const).filter(([, c]) => c).map(([p, c]) => `${c} ${p}`).join(', ');
+    const clocks = [...new Set(list.map((e) => `${Math.round(e.clock * 10) / 10}%`))].join(' / ');
+    srcs.push({
+      kind: 'extractor', item, rate,
+      title: `${count} × ${ex.name}`,
+      lines: [`${itemName(item)} · ${rateTxt(item, rate)}`, `${pur} · ${clocks}`, where(list.map((e) => e.node!))].filter(Boolean),
+    });
+  }
+  for (const line of plan.inputs) {
+    if (line.source === 'import') {
+      const from = (ctx?.imports ?? []).filter((i) => i.item === line.item);
+      const names = [...new Set(from.map((i) => i.name))];
+      srcs.push({
+        kind: 'import', item: line.item, rate: line.rate,
+        title: names.length ? `From ${names.join(', ')}` : 'From another factory',
+        lines: [`${itemName(line.item)} · ${rateTxt(line.item, line.rate)}`, where(from.map((i) => i.at).filter((p): p is Pt => !!p))].filter(Boolean),
+      });
+    } else if (line.source === 'manual' || line.source === 'unlimited') {
+      srcs.push({
+        kind: 'outside', item: line.item, rate: line.rate,
+        title: line.source === 'manual' ? 'Outside supply' : 'Not assigned yet',
+        lines: [`${itemName(line.item)} · ${rateTxt(line.item, line.rate)}`, line.source === 'manual' ? 'train, truck or belt' : 'claim nodes or import it'],
+      });
+    }
+  }
+  // Left to right in bus-lane order so wires don't cross much.
+  srcs.sort((a, b) => (laneX[a.item] ?? 0) - (laneX[b.item] ?? 0));
+  const yardH = srcs.length ? BOX_H + 3 * F : 0;
+  const sources: SourceBox[] = srcs.map((src, k) => {
+    const x = k * (BOX_W + YARD_GAP);
+    const y = -yardH;
+    const lane = laneX[src.item] ?? x + BOX_W / 2;
+    const mid = -F - (k % 3) * 2; // stagger the horizontal runs a little
+    return { ...src, x, y, w: BOX_W, h: BOX_H, wire: [{ x: x + BOX_W / 2, y: y + BOX_H }, { x: x + BOX_W / 2, y: mid }, { x: lane, y: mid }, { x: lane, y: portTopY }] };
+  });
+  const { facing: autoFacing, why } = facingFor(plan, ctx);
+  const facing: Facing = opt.orientation && opt.orientation !== 'auto' ? opt.orientation : autoFacing;
+  const facingWhy = opt.orientation && opt.orientation !== 'auto' ? `Input wall set to face ${FACING_NAME[facing]}.` : why;
 
   const floors: Floor[] = [];
   floorSpecs.forEach((rowsSpec, fi) => {
@@ -331,6 +458,9 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   const machineTotals: Record<string, number> = {};
   for (const g of plan.groups) machineTotals[g.machine.name] = (machineTotals[g.machine.name] ?? 0) + g.count;
   for (const [name, count] of Object.entries(machineTotals)) bom.push({ name, count });
+  const extractorTotals: Record<string, number> = {};
+  for (const e of plan.extraction) extractorTotals[e.extractor.name] = (extractorTotals[e.extractor.name] ?? 0) + e.count;
+  for (const [name, count] of Object.entries(extractorTotals)) bom.push({ name: `${name} (at the nodes)`, count });
 
   if (plan.power.generated > 0) notes.push(`Generators make ${Math.round(plan.power.generated)} MW — connect them to your grid with power lines (not drawn).`);
   if (target === POWER && plan.power.generated > 0) notes.push('The product is power, so there is no output belt.');
@@ -340,5 +470,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   notes.push(`Belts sized from what you have unlocked (best: ${belt.name}, ${belt.rate}/min). Labels like “×2” mean parallel lines.`);
   notes.push('Machine input/output port positions are approximate — check each machine’s arrows in game and flip the row if needed.');
 
-  return { floors, width, height, lanes, bom, notes };
+  if (sources.length) notes.push('Miners, extractors and other supply are drawn in a yard outside the input wall, each wired to its input port. Distances and directions are from the factory’s spot on the map.');
+  notes.push(facingWhy);
+  return { floors, width, height, lanes, bom, notes, sources, yardH, facing, facingWhy };
 }
