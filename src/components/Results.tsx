@@ -12,6 +12,12 @@ import { LogisticsCard } from './LogisticsCard';
 import { TipCard } from './TipCard';
 import { fmt, ItemTag, mw, Stat } from './ui';
 
+/** "Refinery" → "Refineries", "Smelter" → "Smelters". */
+function plural(name: string, n: number) {
+  if (n === 1) return name;
+  return /[^aeiou]y$/i.test(name) ? `${name.slice(0, -1)}ies` : `${name}s`;
+}
+
 const SOURCE: Record<string, string> = {
   nodes: 'claimed nodes', water: 'water extractors', import: 'other factories', manual: 'extra supply', unlimited: 'not assigned yet',
 };
@@ -86,7 +92,7 @@ export function Results({ f }: { f: Factory }) {
               <tr key={g.id}>
                 <td><span className="mdot" style={{ background: MACHINE_COLORS[g.machine.id] ?? '#888' }} />{g.machine.name}</td>
                 <td>{g.recipe.name}{g.recipe.alt && <span className="badge">alt</span>}</td>
-                <td className="num"><b>{g.count}</b> <span className="muted">({fmt(g.exact, 3)})</span></td>
+                <td className="num has-tip" title={`At the current clock setting (${fmt(g.clock, 4)}%), the ${g.count} ${plural(g.machine.name, g.count)} ${g.count === 1 ? 'is' : 'are'} producing the equivalent of ${fmt(g.exact, 3)} at 100%.`}><b>{g.count}</b> <span className="muted">({fmt(g.exact, 3)})</span></td>
                 <td className="num">{fmt(g.clock, 4)}%</td>
                 <td className="num">{g.shardsPerMachine ? `${g.shardsPerMachine} each` : '—'}</td>
                 <td className="num">{mw(g.power)}</td>
