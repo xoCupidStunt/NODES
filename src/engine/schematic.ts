@@ -40,13 +40,15 @@ export interface Floor {
   index: number; width: number; height: number; storeyHeight: number;
   rows: Row[]; machines: PlacedMachine[]; belts: BeltPath[]; markers: Marker[]; ports: Port[]; walls: WallSeg[];
   bus: { x: number; w: number } | null;
+  /** Where each product leaves: boxes below the output wall, wired from their ports (y > height). */
+  outBoxes: SourceBox[];
 }
 export interface BOMLine { name: string; count: number; unit?: string }
 export type Facing = 'N' | 'E' | 'S' | 'W';
 /** Where an input comes from, drawn in the yard outside the input wall and wired to its port. */
 export interface SourceBox {
   x: number; y: number; w: number; h: number;
-  kind: 'extractor' | 'water' | 'well' | 'import' | 'outside';
+  kind: 'extractor' | 'water' | 'well' | 'import' | 'outside' | 'output' | 'surplus';
   item: string; rate: number; title: string; lines: string[];
   /** Path from the box to the input port on the ground floor. */
   wire: Pt[];
@@ -418,7 +420,23 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
     // The game data under-reports some heights (e.g. Assembler), so keep at least 3 walls (12 m) of headroom.
     const tallest = Math.max(10, ...rowsSpec.map((s) => s.machine.h));
     const storeyHeight = Math.ceil((tallest + (opt.logistics === 'underfloor' ? 4 : 2)) / 4) * 4;
-    floors.push({ index: fi, width, height, storeyHeight, rows, machines: ms, belts, markers, ports, walls, bus: { x: busX, w: busW } });
+    // Output yard: one box per product leaving this floor, below the output wall.
+    const outs = ports.filter((p) => p.dir === 'out').sort((a, b) => a.x - b.x);
+    const outBoxes: SourceBox[] = outs.map((p, k) => {
+      const x = k * (BOX_W + YARD_GAP);
+      const y = height + 2 * F;
+      const cx = x + BOX_W / 2;
+      const mid = height + F - (k % 3) * 2;
+      const main = p.item === target;
+      const also = !main && plan.also.some(([i]) => i === p.item);
+      return {
+        kind: main || also ? 'output' : 'surplus', item: p.item, rate: p.rate, x, y, w: BOX_W, h: 3 * F,
+        title: `${main ? 'OUT' : also ? 'ALSO OUT' : 'SURPLUS'} ${itemName(p.item)}`,
+        lines: [rateTxt(p.item, p.rate), main ? 'main product' : also ? 'extra product' : 'ship, sink or store', ...(fi > 0 ? ['lift to ground'] : [])],
+        wire: [{ x: p.x, y: p.y }, { x: p.x, y: mid }, { x: cx, y: mid }, { x: cx, y }],
+      };
+    });
+    floors.push({ index: fi, width, height, storeyHeight, rows, machines: ms, belts, markers, ports, walls, bus: { x: busX, w: busW }, outBoxes });
   });
 
   // ---- bill of materials ----

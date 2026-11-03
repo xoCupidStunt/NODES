@@ -203,7 +203,8 @@ export function SchematicView({ f }: { f: Factory }) {
               {o.logistics !== 'visible' && <div><svg width="28" height="10"><line x1="0" y1="5" x2="28" y2="5" stroke="#aaa" strokeWidth={3} strokeDasharray="4 3" opacity={0.6} /></svg> Hidden belt / pipe</div>}
               {o.logistics !== 'visible' && <div><svg width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="none" stroke={C.hole} strokeWidth="2" /></svg> {o.logistics === 'walls' ? 'Wall hole' : 'Floor hole'}</div>}
               <div><svg width="20" height="12"><path d="M2,6 L14,6 M10,2 L16,6 L10,10" stroke="#fff" fill="none" strokeWidth="2" /></svg> Flow direction</div>
-              {sch.sources.length > 0 && <div><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="2" fill={C.yard} stroke="#aaa" /></svg> Miner / extractor / supply (outside the wall, at the nodes)</div>}
+              {sch.sources.length > 0 && <div><svg width="18" height="14"><rect x="1" y="1" width="16" height="12" rx="2" fill={C.yard} stroke="#aaa" /></svg> Where inputs come from (above the input wall) and where products go (below the output wall)</div>}
+              <div><svg width="18" height="14"><rect x="4" y="0" width="10" height="14" fill={C.bus} /></svg> Bus: one lane per item, rows take from it and feed back</div>
             </div>
           </section>
           <section className="card">
@@ -263,7 +264,6 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
       {s >= 4 && Array.from({ length: rows }, (_, i) => <T key={'rn' + i} x={-4} y={(i + 0.5) * F * s + 3} fontSize={9} fill={C.muted} textAnchor="end">{i + 1}</T>)}
 
       {fl.bus && <rect x={fl.bus.x * s} y={0} width={fl.bus.w * s} height={H} fill={C.bus} opacity={0.8} />}
-      {fl.bus && <T x={(fl.bus.x + fl.bus.w / 2) * s} y={H - 6} fontSize={10} fill={C.muted} textAnchor="middle">BUS</T>}
 
       {/* hidden logistics first, faded */}
       <g opacity={0.45}>{hidden.map((b, k) => <Belt key={k} b={b} s={s} dashed />)}</g>
@@ -272,8 +272,9 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
         <g key={r.id}>
           <rect x={r.x * s} y={r.y * s} width={r.w * s} height={r.h * s} fill={C.row} stroke={C.grid5} strokeDasharray="4 3" />
           {o.showLabels && (
-            <T x={(r.x + r.w) * s + 6} y={(r.y + r.h / 2) * s + 4} fontSize={11} fill={C.text}>
-              {r.count} × {r.machine.name} · {r.recipe.name} @ {fmt(r.clock, 2)}%
+            <T after x={(r.x + r.w) * s + 6} y={(r.y + r.h / 2) * s - 3} fontSize={11} fill={C.text}>
+              <tspan x={(r.x + r.w) * s + 6} fontWeight={600}>{r.count} × {r.machine.name}</tspan>
+              <tspan x={(r.x + r.w) * s + 6} dy={13} fill={C.muted}>{r.recipe.name} @ {fmt(r.clock, 2)}%</tspan>
             </T>
           )}
         </g>
@@ -304,7 +305,8 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
         const vertical = Math.abs(a.x - c.x) < 0.1;
         const label = `${itemName(b.item)} ${fmt(b.rate, 1)}${b.fluid ? 'm³' : ''}/min · ${b.lanes > 1 ? b.lanes + '× ' : ''}${b.tier.replace('Conveyor Belt ', 'Belt ').replace('Pipeline ', 'Pipe ')}`;
         if (vertical) return null;
-        return <T key={'lbl' + k} x={(Math.min(a.x, c.x) + 2) * s + (b.kind === 'manifold' ? 40 : 0)} y={a.y * s - 3} fontSize={9} fill={C.text} opacity={b.hidden ? 0.7 : 1} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{label}</T>;
+        // After the row's last machine, level with its belt: clear of splitters, ports and the bus.
+        return <T after key={'lbl' + k} x={Math.max(a.x, c.x) * s + 8} y={a.y * s + 3} fontSize={9} fill={C.text} opacity={b.hidden ? 0.7 : 1} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{label}</T>;
       })}
 
       {fl.markers.map((m, k) => {
@@ -347,12 +349,13 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
         return (
           <g key={'p' + k}>
             <path d={up ? `M${x - 7},${y - 8} L${x + 7},${y - 8} L${x},${y + 4} z` : `M${x - 7},${y - 4} L${x + 7},${y - 4} L${x},${y + 8} z`} fill={itemColor(p.item)} stroke="#fff" strokeWidth={1.2} />
-            <T x={x + 10} y={y + 4 + (fl.ports.filter((q) => q.dir === p.dir).indexOf(p)) * 12 * (up ? 1 : -1)} fontSize={10} fill={C.text} fontWeight={600} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{p.label} {fmt(p.rate, 1)}{isFluid(p.item) ? ' m³' : ''}/min</T>
+            <title>{`${p.label} ${fmt(p.rate, 1)}${isFluid(p.item) ? ' m³' : ''}/min`}</title>
           </g>
         );
       })}
 
       {sources.map((b, k) => <Yard key={'src' + k} b={b} s={s} />)}
+      {fl.outBoxes.map((b, k) => <Yard key={'out' + k} b={b} s={s} />)}
     </g>
   );
 }
@@ -382,9 +385,15 @@ const FACING_NAME: Record<Facing, string> = { N: 'north', E: 'east', S: 'south',
 
 /** How far the plan is turned, so text inside it can be turned back upright. */
 const RotCtx = createContext(0);
-function T({ x, y, ...rest }: SVGProps<SVGTextElement> & { x: number; y: number }) {
+/**
+ * Text inside the turned plan, kept upright. `after`: it belongs past the end of a row or belt (the plan's +x side).
+ * Turned 180° it's right-aligned so it still runs away from the drawing; turned 90°/270° the rows are columns
+ * with no room across them, so it runs along the row instead (read top-down or bottom-up), like on a floor plan.
+ */
+function T({ x, y, after, ...rest }: SVGProps<SVGTextElement> & { x: number; y: number; after?: boolean }) {
   const a = useContext(RotCtx);
-  return <text x={x} y={y} transform={a ? `rotate(${-a} ${x} ${y})` : undefined} {...rest} />;
+  if (after && (a === 90 || a === 270)) return <text x={x} y={y} {...rest} />;
+  return <text x={x} y={y} transform={a ? `rotate(${-a} ${x} ${y})` : undefined} {...rest} {...(after && a === 180 ? { textAnchor: 'end' } : {})} />;
 }
 
 interface Box { x0: number; y0: number; x1: number; y1: number }
@@ -392,7 +401,9 @@ interface Box { x0: number; y0: number; x1: number; y1: number }
 function floorBox(fl: Floor, sch: Schematic, s: number, o: SchematicOptions): Box {
   const yard = fl.index === 0 ? sch.yardH : 0;
   const yardW = fl.index === 0 && sch.sources.length ? Math.max(...sch.sources.map((b) => b.x + b.w)) : 0;
-  return { x0: -30, y0: -yard * s - 18, x1: Math.max(fl.width, yardW) * s + (o.showLabels ? 320 : 30), y1: fl.height * s + 12 };
+  const outW = fl.outBoxes.length ? Math.max(...fl.outBoxes.map((b) => b.x + b.w)) : 0;
+  const outH = fl.outBoxes.length ? Math.max(...fl.outBoxes.map((b) => b.y + b.h)) : fl.height;
+  return { x0: -30, y0: -yard * s - 18, x1: Math.max(fl.width, yardW, outW) * s + (o.showLabels ? 320 : 30), y1: outH * s + 12 };
 }
 /** The same box after rotate(angle) about the origin. */
 function turned(b: Box, a: number): Box {
