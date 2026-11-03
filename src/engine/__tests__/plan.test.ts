@@ -173,7 +173,7 @@ describe('overclocking miners', () => {
     const off = buildPlan(factory({ ...base, useShards: false }), pr);
     const coalOff = off.extraction.find((e) => e.item === 'Desc_Coal_C')!;
     expect(coalOff.clock).toBeLessThanOrEqual(100);
-    const tip = suggestions(factory({ ...base, useShards: false }), off, pr, [], {}).find((t) => /Coal is the bottleneck/.test(t.title))!;
+    const tip = suggestions(factory({ ...base, useShards: false }), off, pr, [], {}).find((t) => /Coal (limits output|.*run out together)/.test(t.title))!;
     expect([...(tip.options ?? []), ...(tip.steps ?? [])].join(' ')).toMatch(/Use power shards/);
 
     const on = buildPlan(factory({ ...base, useShards: true, clockCap: 250 }), pr);

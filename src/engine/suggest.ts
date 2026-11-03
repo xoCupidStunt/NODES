@@ -1,5 +1,5 @@
-import { game, isFluid, itemName, items, recipes, RAW_ITEMS, WATER } from '../data/game';
-import { buildPlan, clockPower, nodeById, nodeRate, shardsFor, type Plan } from './plan';
+import { game, isFluid, itemName, items, recipes, RAW_ITEMS, WATER, type ResourceNode } from '../data/game';
+import { buildPlan, clockPower, minerClockFor, nodeById, nodeRate, shardsFor, type Plan } from './plan';
 import { claimedElsewhere, dist, helpfulFactories, nearestNodes } from './placement';
 import { availableBelts, buildingSource, recipeSource, type Progress } from './progression';
 import { recipePower } from './solver';
@@ -17,7 +17,7 @@ export interface Tip {
   score: number;
 }
 
-const fmt = (v: number, d = 1) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(d));
+const fmt = (v: number, d = 1) => (Math.abs(v - Math.round(v)) < 1e-6 ? String(Math.round(v)) : v.toFixed(d).replace(/\.0+$/, ''));
 const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
 
 /**
@@ -31,55 +31,98 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
   const chainItems = new Set<string>();
   for (const g of plan.groups) for (const [i] of [...g.inputs, ...g.outputs]) chainItems.add(i);
 
-  // 1. Bottleneck resources (max mode) and the nearest free node that would lift them.
+  // 1. Resources (max mode): what really limits output, and what is mined but can't be used.
   if (plan.maxRate !== null && f.mode === 'max') {
     const taken = claimedElsewhere(factories, f.id, inGame);
     f.nodes.forEach((n) => taken.add(n));
-    for (const [item, cap] of Object.entries(plan.supply)) {
-      const used = plan.solve.inputs[item] ?? 0;
-      if (!RAW_ITEMS.includes(item) || used < cap - 1e-3) continue;
-      const unit = isFluid(item) ? ' m³/min' : '/min';
-      // The miners already on its claimed nodes come first: overclocking them is cheaper than a new node.
+    const unitOf = (item: string) => (isFluid(item) ? ' m³/min' : '/min');
+    const minerClock = minerClockFor(f, progress, u);
+    const sitesOf = (item: string) => plan.extraction.filter((e) => e.item === item && e.node && e.extractor.kind !== 'pressurizer');
+    const clocksOf = (item: string) => [...new Set(sitesOf(item).map((e) => `${fmt(e.clock, 1)}%`))].join(' / ');
+    const raw = Object.keys(plan.supply).filter((i) => RAW_ITEMS.includes(i) && i !== WATER);
+    const capped = raw.filter((i) => (plan.solve.inputs[i] ?? 0) >= plan.supply[i] - 1e-3);
+    // Output with a bit more of some resources — tells which ones really limit it.
+    const gainWith = (items: string[]) => {
+      const extra = { ...f.extraSupply };
+      for (const i of items) extra[i] = (extra[i] ?? 0) + Math.max(plan.supply[i] * 0.25, 30);
+      const t = buildPlan({ ...f, extraSupply: extra }, progress);
+      return t.status === 'ok' ? t.rate - plan.rate : 0;
+    };
+    const helps = (g: number) => g > Math.max(plan.rate * 0.005, 0.01);
+    const alone = capped.filter((i) => helps(gainWith([i])));
+    const together = !alone.length && capped.length > 1 && helps(gainWith(capped)) ? capped : [];
+
+    // Ways to get more of one resource: the miners already there first, then a new node.
+    const waysFor = (item: string) => {
+      const unit = unitOf(item);
       const mine = f.nodes.map((id) => nodeById[id]).filter((n) => n && n.item === item);
-      const sites = plan.extraction.filter((e) => e.item === item && e.node && e.extractor.kind !== 'pressurizer');
+      const sites = sitesOf(item);
       const now = Math.max(0, ...sites.map((e) => e.clock));
-      const at250 = mine.reduce((a, n) => a + nodeRate(n, u, 250), 0);
-      const gain = at250 - mine.reduce((a, n) => a + nodeRate(n, u, Math.max(100, now)), 0);
+      const gain = mine.reduce((acc, n) => acc + nodeRate(n, u, 250) - nodeRate(n, u, Math.max(100, now)), 0);
       const minerName = sites[0]?.extractor.name ?? 'miner';
-      const options: string[] = [];
+      const ways: string[] = [];
       if (mine.length && gain > 0.5) {
         const n = mine.length;
         const what = `the ${n > 1 ? `${n} ${minerName}s` : minerName} on ${itemName(item)}`;
         const shards = n * shardsFor(250);
         if (!u.overclock) {
-          if (!availableOnly) options.push(`Research “Overclock Production” in the MAM, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} power shards)`);
+          if (!availableOnly) ways.push(`Research “Overclock Production” in the MAM, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} power shards)`);
         } else if (progress.shards <= 0) {
-          options.push(`Collect power shards, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} shards)`);
+          ways.push(`Collect power shards, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} shards)`);
         } else if (!f.useShards) {
-          options.push(`Turn on “Use power shards” in step 1 (Overclock settings) — ${what} can then run at up to 250% (+${fmt(gain)}${unit}, ${shards} of your ${progress.shards} shards)`);
+          ways.push(`Turn on “Use power shards” in step 1 (Overclock settings) — ${what} can then run at up to 250% (+${fmt(gain)}${unit}, ${shards} of your ${progress.shards} shards)`);
         } else if (f.clockCap < 250) {
-          options.push(`Raise “Max clock” in step 1 to 250% — ${what} ${n > 1 ? 'are' : 'is'} held to ${fmt(f.clockCap, 0)}% (+${fmt(gain)}${unit})`);
+          ways.push(`Raise “Max clock” in step 1 to 250% — ${what} ${n > 1 ? 'are' : 'is'} held to ${fmt(f.clockCap, 0)}% (+${fmt(gain)}${unit})`);
         } else {
-          options.push(`Overclock ${what} further — not enough power shards for all of them at 250% (you have ${progress.shards}, the plan uses ${plan.shardsUsed})`);
+          ways.push(`Overclock ${what} further — not enough power shards for all of them at 250% (you have ${progress.shards}, the plan uses ${plan.shardsUsed})`);
         }
       }
       if (f.location) {
         const near = nearestNodes(item, f.location, taken, 1)[0];
-        if (near) options.push(`Claim the nearest free node: ${near.node.purity} ${itemName(item)} ${fmt(near.d, 0)} m away (+${fmt(nodeRate(near.node, u))}${unit} at 100%)`);
+        if (near) ways.push(`Claim the nearest free ${itemName(item)} node: ${near.node.purity}, ${fmt(near.d, 0)} m away (+${fmt(nodeRate(near.node, u))}${unit} at 100%)`);
       }
-      const clockNote = sites.length ? ` Its ${sites.length > 1 ? `${sites.length} miners run` : 'miner runs'} at ${[...new Set(sites.map((e) => `${fmt(e.clock, 1)}%`))].join(' / ')}.` : '';
+      return ways;
+    };
+    const spare = raw.filter((i) => plan.supply[i] - (plan.solve.inputs[i] ?? 0) > 1);
+    const spareNote = spare.length ? ` ${list(spare.map(itemName))} ${spare.length > 1 ? 'are' : 'is'} left over, so ${spare.length > 1 ? 'those miners are' : 'its miners are'} already slowed to what this allows — see below.` : '';
+
+    for (const item of alone) {
+      const ways = waysFor(item);
+      const clocks = clocksOf(item);
       tips.push({
-        kind: 'resource', title: `${itemName(item)} is the bottleneck`, score: 90,
-        detail: `All ${fmt(cap)}${unit} of ${itemName(item)} is used — it limits output.${clockNote}`,
-        ...(options.length > 1 ? { options } : options.length ? { steps: options } : {}),
+        kind: 'resource', title: `${itemName(item)} limits output`, score: 90,
+        detail: `All ${fmt(plan.supply[item])}${unitOf(item)} is used, and more of it alone raises output.${clocks ? ` Its miners run at ${clocks}.` : ''}${spareNote}`,
+        ...(ways.length > 1 ? { options: ways } : ways.length ? { steps: ways } : {}),
       });
     }
-    // Spare resources that the plan doesn't use.
-    for (const [item, cap] of Object.entries(plan.supply)) {
+    if (together.length) {
+      tips.push({
+        kind: 'resource', title: `${list(together.map(itemName))} run out together`, score: 85,
+        detail: `All of each is used, and more of just one doesn't raise output — they're in balance. Growing means more of all of them.${spareNote}`,
+        steps: together.map((i) => `${itemName(i)}: ${(waysFor(i)[0] ?? 'no more available nearby').replace(/^./, (c) => c.toLowerCase())}`),
+      });
+    }
+
+    // Mined but not usable: the miners are already slowed to match; nodes that aren't needed can go.
+    for (const item of spare) {
       const used = plan.solve.inputs[item] ?? 0;
-      if (RAW_ITEMS.includes(item) && cap - used > 1 && used > 0) {
-        tips.push({ kind: 'resource', title: `${fmt(cap - used)}/min ${itemName(item)} left over`, detail: `Claimed nodes give more ${itemName(item)} than this chain can use with the other limits. Add more of the bottleneck resource, or underclock the extractors to save power.`, score: 30 });
+      const fromNodes = Math.max(0, used - (f.extraSupply[item] ?? 0) - f.imports.filter((i) => i.item === item).reduce((acc, i) => acc + i.rate, 0));
+      const mine = f.nodes.map((id) => nodeById[id]).filter((n) => n && n.item === item);
+      const keep = fewestNodes(mine, fromNodes, (n) => nodeRate(n, u, minerClock), f.location);
+      const release = mine.filter((n) => !keep.includes(n));
+      const why = capped.length ? `${list(capped.map(itemName))} ${capped.length > 1 ? 'run' : 'runs'} out first` : 'the chain can’t use more';
+      const clocks = clocksOf(item);
+      const options: string[] = [];
+      if (release.length) {
+        const where = (n: ResourceNode) => `${n.purity}${f.location ? `, ${fmt(dist(n, f.location), 0)} m away` : ''}`;
+        options.push(`Release ${release.length > 1 ? `${release.length} ${itemName(item)} nodes` : `the ${itemName(item)} node`} it doesn't need (${release.map(where).join('; ')}) on the Map step — ${keep.length > 1 ? 'the others still cover it' : 'the other one still covers it'}`);
       }
+      if (capped.length) options.push(`Keep ${release.length ? 'them' : 'it'} for later and add ${list(capped.map(itemName))} to use it (see above)`);
+      tips.push({
+        kind: 'resource', title: `${fmt(plan.supply[item] - used)}${unitOf(item)} ${itemName(item)} can't be used`, score: release.length ? 60 : 30,
+        detail: `The claimed nodes give ${fmt(plan.supply[item])}${unitOf(item)}, but ${why}, so this factory uses ${fmt(used)}${unitOf(item)}.${clocks ? ` Its miners are already clocked to match (${clocks}).` : ''}`,
+        ...(options.length > 1 ? { options } : options.length ? { steps: options } : {}),
+      });
     }
   }
 
@@ -197,3 +240,20 @@ function objective(f: Factory, p: Plan) {
   return f.mode === 'max' ? p.rate : f.mode === 'power' ? p.power.total : p.machineArea;
 }
 
+
+const list = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+
+/** The fewest of these nodes that still give `need`, nearest first among equals; all of them if none do. */
+function fewestNodes(ns: ResourceNode[], need: number, rate: (n: ResourceNode) => number, at: { x: number; y: number } | null) {
+  if (need <= 1e-6) return [];
+  const pool = ns.slice(0, 12);
+  let best: ResourceNode[] | null = null;
+  let bestKey = [Infinity, Infinity];
+  for (let mask = 1; mask < 1 << pool.length; mask++) {
+    const set = pool.filter((_, k) => mask & (1 << k));
+    if (set.reduce((a, n) => a + rate(n), 0) < need - 1e-6) continue;
+    const key = [set.length, at ? set.reduce((a, n) => a + dist(n, at), 0) : 0];
+    if (key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { best = set; bestKey = key; }
+  }
+  return best ?? ns;
+}
