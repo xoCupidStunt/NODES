@@ -24,6 +24,13 @@ export function usePanZoom(initial: ViewBox = FULL_VIEW) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // End a drag on any release, even one a marker's click handler kept from reaching the map.
+  useEffect(() => {
+    const end = () => { drag.current = null; };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => { window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+  }, []);
 
   const h = vb.w / aspect;
   const pxToWorld = vb.w / (svgRef.current?.clientWidth || 1000);
@@ -55,6 +62,7 @@ export function usePanZoom(initial: ViewBox = FULL_VIEW) {
       setHover(toWorld(e));
       const d = drag.current;
       if (!d) return;
+      if (e.buttons === 0) { drag.current = null; return; } // button already up: not a drag
       const dx = e.clientX - d.sx;
       const dy = e.clientY - d.sy;
       if (Math.abs(dx) + Math.abs(dy) > 4) d.moved = true;
