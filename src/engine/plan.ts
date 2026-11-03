@@ -86,11 +86,11 @@ export function extractorFor(node: ResourceNode, u: Unlocks): Extractor | null {
   return bestMiner(u);
 }
 
-/** Output per minute of a node at 100 % clock with the best unlocked extractor. */
-export function nodeRate(node: ResourceNode, u: Unlocks): number {
+/** Output per minute of a node with the best unlocked extractor at `clock` % (100 unless overclocked). */
+export function nodeRate(node: ResourceNode, u: Unlocks, clock = 100): number {
   const ex = extractorFor(node, u);
   if (!ex) return 0;
-  const rate = ex.rate * PURITY_MULT[node.purity];
+  const rate = ex.rate * PURITY_MULT[node.purity] * (clock / 100);
   // A single belt/pipe out of the extractor caps it.
   const cap = isFluid(node.item) ? availablePipes(u).at(-1)!.rate : availableBelts(u).at(-1)!.rate;
   return Math.min(rate, cap);
@@ -106,12 +106,12 @@ export function clockPower(base: number, exp: number, clock: number) {
 
 const round = (v: number, d = 4) => Math.round(v * 10 ** d) / 10 ** d;
 
-/** Supply caps for a factory: claimed nodes, manual extras and imports. */
-export function supplyFor(f: Factory, u: Unlocks): Record<string, number> {
+/** Supply caps for a factory: claimed nodes (miners at up to `minerClock` %), manual extras and imports. */
+export function supplyFor(f: Factory, u: Unlocks, minerClock = 100): Record<string, number> {
   const s: Record<string, number> = {};
   for (const id of f.nodes) {
     const n = nodeById[id];
-    if (n) s[n.item] = (s[n.item] ?? 0) + nodeRate(n, u);
+    if (n) s[n.item] = (s[n.item] ?? 0) + nodeRate(n, u, minerClock);
   }
   for (const [item, v] of Object.entries(f.extraSupply)) if (v > 0) s[item] = (s[item] ?? 0) + v;
   for (const imp of f.imports) if (imp.rate > 0) s[imp.item] = (s[imp.item] ?? 0) + imp.rate;
@@ -130,9 +130,23 @@ export function alsoRates(f: Factory, solve: SolveResult): [string, number][] {
   return (f.also ?? []).filter((a) => a.item !== f.target).map((a) => [a.item, (a.how ?? 'fixed') === 'fixed' ? a.rate : solve.extra?.[a.item] ?? 0] as [string, number]);
 }
 
+/**
+ * Highest clock the miners on a factory's claimed nodes may run at: 100 % without shards; with "Use power
+ * shards" on, up to the max clock, as far as there are shards for every claimed node.
+ */
+export function minerClockFor(f: Factory, progress: Progress, u: Unlocks = computeUnlocks(progress)) {
+  if (!(u.overclock && f.useShards && progress.shards > 0)) return 100;
+  const cap = Math.min(250, Math.max(100, f.clockCap));
+  const count = f.nodes.filter((id) => nodeById[id]).length;
+  // The max clock, else the most each shard step (1 → 150 %, 2 → 200 %) allows for every node.
+  for (const c of [cap, 200, 150].filter((x) => x <= cap)) if (shardsFor(c) * count <= progress.shards) return c;
+  return 100;
+}
+
 export function buildPlan(f: Factory, progress: Progress): Plan {
   const u = computeUnlocks(progress);
-  const supply = supplyFor(f, u);
+  const minerClock = minerClockFor(f, progress, u);
+  const supply = supplyFor(f, u, minerClock);
   const extractionPower: Record<string, number> = {};
   const miner = bestMiner(u);
   for (const item of Object.keys(supply)) extractionPower[item] = miner.power / miner.rate;
@@ -154,9 +168,26 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
 
   const warnings: string[] = [];
 
+  // ---- miners on claimed nodes: up to 100 % on every node first, then overclock only as far as needed ----
+  const fillNodes = (item: string, need: number) => {
+    const sites = f.nodes.map((id) => nodeById[id]).filter((n) => n && n.item === item)
+      .sort((a, b) => PURITY_MULT[b.purity] - PURITY_MULT[a.purity])
+      .map((n) => ({ n, ex: extractorFor(n, u), base: nodeRate(n, u), top: nodeRate(n, u, minerClock), use: 0 }))
+      .filter((x) => x.ex && x.base > 0);
+    let left = need;
+    for (const x of sites) { const a = Math.min(left, x.base); x.use = a; left -= a; }
+    for (const x of sites) { if (left <= 1e-6) break; const a = Math.min(left, x.top - x.use); x.use += a; left -= a; }
+    return sites.filter((x) => x.use > 1e-6).map((x) => ({ ...x, clock: round((x.use / (x.ex!.rate * PURITY_MULT[x.n.purity])) * 100, 2) }));
+  };
+  const importOf = (item: string) => f.imports.filter((x) => x.item === item).reduce((a, b) => a + b.rate, 0);
+  // Overclocked miners get their shards first: more resources lift the whole factory.
+  const minerShards = Object.entries(solve.inputs)
+    .flatMap(([item, rate]) => fillNodes(item, Math.max(0, rate - importOf(item))))
+    .reduce((a, x) => a + shardsFor(x.clock), 0);
+
   // ---- machines & clocks ----
   const overclockOk = u.overclock && f.useShards && progress.shards > 0;
-  let shardsLeft = overclockOk ? progress.shards : 0;
+  let shardsLeft = overclockOk ? Math.max(0, progress.shards - minerShards) : 0;
   const cap = overclockOk ? Math.min(250, Math.max(1, f.clockCap)) : Math.min(100, Math.max(1, f.clockCap));
   // Hand shards to the groups that save the most machines first.
   const order = Object.entries(solve.recipes).sort((a, b) => b[1] * machines[recipes[b[0]].machine].w - a[1] * machines[recipes[a[0]].machine].w);
@@ -190,7 +221,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
       depth: 0,
     });
   }
-  const shardsUsed = overclockOk ? progress.shards - shardsLeft : 0;
+  const shardsUsed = overclockOk ? progress.shards - shardsLeft : 0; // machines and miners
 
   // ---- depth (raw → product) for layout ----
   const producers: Record<string, MachineGroup[]> = {};
@@ -256,19 +287,11 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
       inputs.push({ item, rate: use, source: 'import' });
       left -= use;
     }
-    const claimed = f.nodes.map((id) => nodeById[id]).filter((n) => n && n.item === item)
-      .sort((a, b) => PURITY_MULT[b.purity] - PURITY_MULT[a.purity]);
     let fromNodes = 0;
-    for (const n of claimed) {
-      if (left <= 1e-6) break;
-      const ex = extractorFor(n, u);
-      const capRate = nodeRate(n, u);
-      if (!ex || capRate <= 0) continue;
-      const use = Math.min(left, capRate);
-      const clock = round((use / (ex.rate * PURITY_MULT[n.purity])) * 100, 2);
-      extraction.push({ item, node: n, extractor: ex, count: 1, clock, rate: use, power: clockPower(ex.power, 1.321929, clock) });
-      fromNodes += use;
-      left -= use;
+    for (const x of fillNodes(item, left)) {
+      extraction.push({ item, node: x.n, extractor: x.ex!, count: 1, clock: x.clock, rate: x.use, power: clockPower(x.ex!.power, 1.321929, x.clock) });
+      fromNodes += x.use;
+      left -= x.use;
     }
     if (fromNodes > 0) inputs.push({ item, rate: fromNodes, source: 'nodes' });
     if (left > 1e-6 && item === WATER) {

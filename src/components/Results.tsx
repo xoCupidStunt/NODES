@@ -6,6 +6,7 @@ import { useStore } from '../state';
 import { AsBuiltCard } from './AsBuiltCard';
 import { FlowDiagram } from './FlowDiagram';
 import { LogisticsCard } from './LogisticsCard';
+import { TipCard } from './TipCard';
 import { fmt, ItemTag, mw, Stat } from './ui';
 
 const SOURCE: Record<string, string> = {
@@ -158,12 +159,7 @@ export function Results({ f }: { f: Factory }) {
         {deferred !== plan && <p className="muted">Updating…</p>}
         {tips.length === 0 && <p className="muted">Nothing to improve with what you have unlocked.</p>}
         <div className="tips">
-          {tips.map((t, k) => (
-            <div key={k} className={`tip ${t.kind}`}>
-              <div className="tip-kind">{t.kind}</div>
-              <div><b>{t.title}</b><div className="muted">{t.detail}</div></div>
-            </div>
-          ))}
+          {tips.map((t, k) => <TipCard key={k} t={t} />)}
         </div>
       </section>
     </div>

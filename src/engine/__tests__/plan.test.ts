@@ -159,3 +159,28 @@ describe('extra products: share and leftovers', () => {
     expect(p.also.find(([i]) => i === 'Desc_IronRod_C')).toBeUndefined();
   });
 });
+
+describe('overclocking miners', () => {
+  it('overclocks a bottlenecked miner when shards are on, and the tip says so when they are off', async () => {
+    const { nodes } = await import('../../data/game');
+    const iron = nodes.filter((n) => n.item === 'Desc_OreIron_C' && n.type === 'node' && n.purity === 'pure')[0];
+    const coal = nodes.filter((n) => n.item === 'Desc_Coal_C' && n.type === 'node' && n.purity === 'impure')[0];
+    const pr = { ...progress(6), mam: [] as string[], shards: 10 };
+    const { game } = await import('../../data/game');
+    const oc = game.schematics.find((s) => s.flags?.includes('BP_UnlockBuildOverclock_C'));
+    if (oc) pr.mam = [oc.id];
+    const base = { target: 'Desc_SteelIngot_C', rate: null, mode: 'max' as const, unlimitedRaw: false, nodes: [iron.id, coal.id], location: { x: coal.x, y: coal.y }, excluded: game.recipes ? Object.keys(game.recipes).filter((id) => /Alternate/.test(id)) : [] };
+    const off = buildPlan(factory({ ...base, useShards: false }), pr);
+    const coalOff = off.extraction.find((e) => e.item === 'Desc_Coal_C')!;
+    expect(coalOff.clock).toBeLessThanOrEqual(100);
+    const tip = suggestions(factory({ ...base, useShards: false }), off, pr, [], {}).find((t) => /Coal is the bottleneck/.test(t.title))!;
+    expect([...(tip.options ?? []), ...(tip.steps ?? [])].join(' ')).toMatch(/Use power shards/);
+
+    const on = buildPlan(factory({ ...base, useShards: true, clockCap: 250 }), pr);
+    const coalOn = on.extraction.find((e) => e.item === 'Desc_Coal_C')!;
+    expect(coalOn.clock).toBeGreaterThan(100);
+    expect(on.rate).toBeGreaterThan(off.rate);
+    expect(on.shardsUsed).toBeGreaterThan(0);
+    expect(on.shardsUsed).toBeLessThanOrEqual(10);
+  });
+});

@@ -1,5 +1,5 @@
 import { game, isFluid, itemName, items, recipes, RAW_ITEMS, WATER } from '../data/game';
-import { buildPlan, clockPower, nodeRate, type Plan } from './plan';
+import { buildPlan, clockPower, nodeById, nodeRate, shardsFor, type Plan } from './plan';
 import { claimedElsewhere, dist, helpfulFactories, nearestNodes } from './placement';
 import { availableBelts, buildingSource, recipeSource, type Progress } from './progression';
 import { recipePower } from './solver';
@@ -38,12 +38,41 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     for (const [item, cap] of Object.entries(plan.supply)) {
       const used = plan.solve.inputs[item] ?? 0;
       if (!RAW_ITEMS.includes(item) || used < cap - 1e-3) continue;
-      let detail = `All ${fmt(cap)}/min of ${itemName(item)} is used — it limits output.`;
+      const unit = isFluid(item) ? ' m³/min' : '/min';
+      // The miners already on its claimed nodes come first: overclocking them is cheaper than a new node.
+      const mine = f.nodes.map((id) => nodeById[id]).filter((n) => n && n.item === item);
+      const sites = plan.extraction.filter((e) => e.item === item && e.node && e.extractor.kind !== 'pressurizer');
+      const now = Math.max(0, ...sites.map((e) => e.clock));
+      const at250 = mine.reduce((a, n) => a + nodeRate(n, u, 250), 0);
+      const gain = at250 - mine.reduce((a, n) => a + nodeRate(n, u, Math.max(100, now)), 0);
+      const minerName = sites[0]?.extractor.name ?? 'miner';
+      const options: string[] = [];
+      if (mine.length && gain > 0.5) {
+        const n = mine.length;
+        const what = `the ${n > 1 ? `${n} ${minerName}s` : minerName} on ${itemName(item)}`;
+        const shards = n * shardsFor(250);
+        if (!u.overclock) {
+          if (!availableOnly) options.push(`Research “Overclock Production” in the MAM, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} power shards)`);
+        } else if (progress.shards <= 0) {
+          options.push(`Collect power shards, then overclock ${what} to 250% (+${fmt(gain)}${unit}, ${shards} shards)`);
+        } else if (!f.useShards) {
+          options.push(`Turn on “Use power shards” in step 1 (Overclock settings) — ${what} can then run at up to 250% (+${fmt(gain)}${unit}, ${shards} of your ${progress.shards} shards)`);
+        } else if (f.clockCap < 250) {
+          options.push(`Raise “Max clock” in step 1 to 250% — ${what} ${n > 1 ? 'are' : 'is'} held to ${fmt(f.clockCap, 0)}% (+${fmt(gain)}${unit})`);
+        } else {
+          options.push(`Overclock ${what} further — not enough power shards for all of them at 250% (you have ${progress.shards}, the plan uses ${plan.shardsUsed})`);
+        }
+      }
       if (f.location) {
         const near = nearestNodes(item, f.location, taken, 1)[0];
-        if (near) detail += ` Nearest free node: ${near.node.purity} ${itemName(item)} ${fmt(near.d, 0)} m away (+${fmt(nodeRate(near.node, u))}/min).`;
+        if (near) options.push(`Claim the nearest free node: ${near.node.purity} ${itemName(item)} ${fmt(near.d, 0)} m away (+${fmt(nodeRate(near.node, u))}${unit} at 100%)`);
       }
-      tips.push({ kind: 'resource', title: `${itemName(item)} is the bottleneck`, detail, score: 90 });
+      const clockNote = sites.length ? ` Its ${sites.length > 1 ? `${sites.length} miners run` : 'miner runs'} at ${[...new Set(sites.map((e) => `${fmt(e.clock, 1)}%`))].join(' / ')}.` : '';
+      tips.push({
+        kind: 'resource', title: `${itemName(item)} is the bottleneck`, score: 90,
+        detail: `All ${fmt(cap)}${unit} of ${itemName(item)} is used — it limits output.${clockNote}`,
+        ...(options.length > 1 ? { options } : options.length ? { steps: options } : {}),
+      });
     }
     // Spare resources that the plan doesn't use.
     for (const [item, cap] of Object.entries(plan.supply)) {

@@ -4,6 +4,7 @@ import { buildPlan, nodeById, nodeRate } from '../engine/plan';
 import { shortfallsOf, surplusItems } from '../engine/gameFactories';
 import { builtCompareFactory, builtMaxFactory, builtSuggestions, groupRates } from '../engine/builtTips';
 import { SURPLUS_HELP } from './GameFactoriesCard';
+import { TipCard } from './TipCard';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { AsBuiltCard } from './AsBuiltCard';
@@ -233,18 +234,7 @@ export function BuiltView({ f }: { f: Factory }) {
           {tips.length === 0 && <p className="muted">Nothing to change — it uses what it gets well.</p>}
           {advice.notes.map((n, k) => <p key={k} className="muted small-text">{n}</p>)}
           <div className="tips">
-            {tips.map((t, k) => (
-              <div key={k} className={`tip ${t.kind}`}>
-                <div className="tip-kind">{t.kind}</div>
-                <div><b>{t.title}</b><div className="muted">{t.detail}</div>{t.options && t.options.length > 0 && (
-                    <div className="tip-options">
-                      <div className="tip-options-head">Choose one:</div>
-                      <ul>{t.options.map((o, j) => <li key={j}><span className="opt-or">{String.fromCharCode(65 + j)}</span>{o}</li>)}</ul>
-                    </div>
-                  )}
-                  {t.steps && t.steps.length > 0 && <ol className="tip-steps">{t.steps.map((s, j) => <li key={j}>{s}</li>)}</ol>}</div>
-              </div>
-            ))}
+            {tips.map((t, k) => <TipCard key={k} t={t} />)}
           </div>
         </section>
 
