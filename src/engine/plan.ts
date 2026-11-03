@@ -123,6 +123,13 @@ export function allowedRecipes(f: Factory, u: Unlocks) {
   return [...u.recipes].filter((id) => recipes[id] && !recipes[id].noPlan && !ex.has(id) && u.buildings.has(recipes[id].machine));
 }
 
+/** Extra products at a fixed rate. */
+const fixedAlso = (f: Factory) => (f.also ?? []).filter((a) => (a.how ?? 'fixed') === 'fixed' && a.item !== f.target && a.rate > 0);
+/** Every extra product with the rate it's made at: fixed, or worked out by the solver. */
+export function alsoRates(f: Factory, solve: SolveResult): [string, number][] {
+  return (f.also ?? []).filter((a) => a.item !== f.target).map((a) => [a.item, (a.how ?? 'fixed') === 'fixed' ? a.rate : solve.extra?.[a.item] ?? 0] as [string, number]);
+}
+
 export function buildPlan(f: Factory, progress: Progress): Plan {
   const u = computeUnlocks(progress);
   const supply = supplyFor(f, u);
@@ -134,7 +141,9 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   const solve = solvePlan({
     target: f.target,
     rate: f.rate,
-    also: Object.fromEntries((f.also ?? []).filter((a) => a.item !== f.target && a.rate > 0).map((a) => [a.item, a.rate])),
+    also: Object.fromEntries(fixedAlso(f).map((a) => [a.item, a.rate])),
+    share: Object.fromEntries((f.also ?? []).filter((a) => a.how === 'share' && a.item !== f.target).map((a) => [a.item, a.ratio ?? 1])),
+    leftover: (f.also ?? []).filter((a) => a.how === 'leftover' && a.item !== f.target).map((a) => a.item),
     mode: f.mode,
     recipes: allowedRecipes(f, u),
     supply,
@@ -214,7 +223,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   }
   for (const [i, v] of Object.entries(solve.inputs)) (makers[i] ??= []).push(['in:' + i, v]);
   if (solve.rate > 0) (users[f.target] ??= []).push(['out', solve.rate]);
-  for (const a of f.also ?? []) if (solve.status === 'ok' && a.item !== f.target && a.rate > 0) (users[a.item] ??= []).push(['out', a.rate]);
+  for (const [item, r] of alsoRates(f, solve)) if (solve.status === 'ok' && r > 0) (users[item] ??= []).push(['out', r]);
   for (const [i, v] of Object.entries(solve.surplus)) (users[i] ??= []).push(['surplus', v]);
   const flows: Flow[] = [];
   for (const item of Object.keys(makers)) {
@@ -295,6 +304,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
       ? 'Set a target rate — with unlimited resources there is no maximum.'
       : 'No resources yet: claim nodes on the Map tab, add supply manually, or switch on "unlimited resources".');
   }
+  if (solve.status === 'ok' && solve.leftoverUnbounded) warnings.push('“Leftovers” products need limited supply to size them — claim nodes (or turn off unlimited resources); until then they are left out.');
   if (solve.status === 'infeasible') warnings.push((f.also ?? []).length ? 'This product mix cannot be made with your unlocked recipes and the resources available — try lower rates for the extra products.' : 'This product cannot be made with your unlocked recipes and the resources available.');
 
   return {
@@ -307,7 +317,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     inputs,
     extraction,
     surplus: Object.entries(solve.surplus).sort((a, b) => b[1] - a[1]),
-    also: solve.status === 'ok' ? (f.also ?? []).filter((a) => a.item !== f.target && a.rate > 0).map((a) => [a.item, a.rate] as [string, number]) : [],
+    also: solve.status === 'ok' ? alsoRates(f, solve).filter(([, r]) => r > 1e-6) : [],
     power: { machines: machinePower, extraction: extractionPower2, total: machinePower + extractionPower2, generated, net: generated - machinePower - extractionPower2 },
     machineArea: groups.reduce((a, g) => a + g.machine.w * g.machine.l * g.count, 0),
     shardsUsed,

@@ -131,3 +131,31 @@ describe('schematic orientation and extraction yard', () => {
     expect(wells.every((w) => w.satellites.length >= 6)).toBe(true);
   });
 });
+
+describe('extra products: share and leftovers', () => {
+  it('splits evenly with the main product, then fills leftovers', async () => {
+    const { nodes } = await import('../../data/game');
+    const iron = nodes.find((n) => n.item === 'Desc_OreIron_C' && n.type === 'node' && n.purity === 'normal')!;
+    const base = { target: 'Desc_IronPlate_C', rate: null, mode: 'max' as const, unlimitedRaw: false, nodes: [iron.id], excluded: ['Recipe_Alternate_CastScrew_C', 'Recipe_Alternate_IronWire_C'] };
+    // Main only: all ore goes to plates.
+    const solo = buildPlan(factory(base), progress(2));
+    // Rods share evenly: the same number of rods as plates.
+    const even = buildPlan(factory({ ...base, also: [{ item: 'Desc_IronRod_C', rate: 0, how: 'share', ratio: 1 }] }), progress(2));
+    const rods = even.also.find(([i]) => i === 'Desc_IronRod_C')![1];
+    expect(rods).toBeCloseTo(even.rate, 3);
+    expect(even.rate).toBeLessThan(solo.rate);
+    // Fixed plates, screws from what's left: all the ore ends up used.
+    const left = buildPlan(factory({ ...base, rate: 20, mode: 'power', also: [{ item: 'Desc_IronScrew_C', rate: 0, how: 'leftover' }] }), progress(2));
+    const screws = left.also.find(([i]) => i === 'Desc_IronScrew_C')![1];
+    expect(left.rate).toBeCloseTo(20, 3);
+    expect(screws).toBeGreaterThan(0);
+    const oreUsed = left.inputs.filter((x) => x.item === 'Desc_OreIron_C').reduce((a, x) => a + x.rate, 0);
+    expect(oreUsed).toBeCloseTo(left.supply.Desc_OreIron_C, 0);
+  });
+
+  it('warns when leftovers have no limit to fill up to', () => {
+    const p = buildPlan(factory({ target: 'Desc_IronPlate_C', rate: 10, mode: 'power', also: [{ item: 'Desc_IronRod_C', rate: 0, how: 'leftover' }] }), progress(2));
+    expect(p.warnings.join(' ')).toMatch(/Leftovers/);
+    expect(p.also.find(([i]) => i === 'Desc_IronRod_C')).toBeUndefined();
+  });
+});

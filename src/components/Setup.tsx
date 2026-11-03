@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { itemName, producibleItems, RAW_ITEMS, recipes, unit } from '../data/game';
 import { allowedRecipes } from '../engine/plan';
 import { rawDemand } from '../engine/placement';
-import type { Factory } from '../engine/types';
+import type { AlsoProduct, Factory } from '../engine/types';
 import { useStore } from '../state';
 import { CombineSeparateCard } from './CombineSeparateCard';
 import { fmt, ItemPicker, ItemTag, NumberInput, confirmDelete } from './ui';
@@ -53,18 +53,44 @@ export function Setup({ f }: { f: Factory }) {
         <div className="also">
           <h3>Also make</h3>
           {f.also.length === 0 && <p className="muted small-text">Other products this factory makes at the same time (byproducts you ship, a second product line…).</p>}
-          {f.also.map((a, k) => (
-            <div key={k} className="row gap wrap also-row">
-              <ItemPicker value={a.item} options={options} onChange={(item) => update({ also: f.also.map((x, j) => (j === k ? { ...x, item } : x)) })} />
-              <NumberInput value={a.rate} step={0.5} onChange={(v) => update({ also: f.also.map((x, j) => (j === k ? { ...x, rate: v ?? 0 } : x)) })} />
-              <span className="muted">{unit(a.item)}</span>
-              <button className="small ghost" onClick={() => update({ also: f.also.filter((_, j) => j !== k) })}>Remove</button>
-              {a.item === f.target && <span className="warn-text small-text">same as the main product — ignored</span>}
-            </div>
-          ))}
+          {f.also.map((a, k) => {
+            const set = (patch: Partial<AlsoProduct>) => update({ also: f.also.map((x, j) => (j === k ? { ...x, ...patch } : x)) });
+            const how = a.how ?? 'fixed';
+            const made = plan.also.find(([i]) => i === a.item)?.[1];
+            return (
+              <div key={k} className="row gap wrap also-row">
+                <ItemPicker value={a.item} options={options} onChange={(item) => set({ item })} />
+                <select value={how} onChange={(e) => set({ how: e.target.value as AlsoProduct['how'], ratio: a.ratio ?? 1 })} title="How much of it to make">
+                  <option value="fixed">Fixed rate</option>
+                  <option value="share">Share with main product</option>
+                  <option value="leftover">From leftovers</option>
+                </select>
+                {how === 'fixed' && <><NumberInput value={a.rate} step={0.5} onChange={(v) => set({ rate: v ?? 0 })} /><span className="muted">{unit(a.item)}</span></>}
+                {how === 'share' && (
+                  <>
+                    <NumberInput value={a.ratio ?? 1} step={0.25} min={0} width={64} onChange={(v) => set({ ratio: v ?? 1 })} />
+                    <span className="muted small-text">per 1 {itemName(f.target)}{(a.ratio ?? 1) === 1 ? ' (even split)' : ''}</span>
+                  </>
+                )}
+                {how !== 'fixed' && plan.status === 'ok' && (
+                  <span className={made && made > 0.01 ? 'ok-text small-text' : 'muted small-text'}>→ {made && made > 0.01 ? `${fmt(made)} ${unit(a.item)}` : how === 'leftover' && f.rate === null ? 'nothing left — the main product uses it all (try Share)' : 'none yet'}</span>
+                )}
+                <button className="small ghost" onClick={() => update({ also: f.also.filter((_, j) => j !== k) })}>Remove</button>
+                {a.item === f.target && <span className="warn-text small-text">same as the main product — ignored</span>}
+              </div>
+            );
+          })}
+          {f.also.some((a) => a.how && a.how !== 'fixed') && (
+            <p className="muted small-text">
+              <b>Share</b> grows with the main product{f.rate === null ? ' — they’re maximised together' : ''} (1 per 1 is an even split). <b>From leftovers</b> makes as much as the claimed resources have left once everything else is made; several leftover products split it evenly.
+            </p>
+          )}
           <button className="small" onClick={() => {
-            const next = options.find((o) => o.id !== f.target && !f.also.some((a) => a.item === o.id));
-            if (next) update({ also: [...f.also, { item: next.id, rate: 10 }] });
+            // Prefer a part this chain already makes (e.g. Iron Rod for plates), then anything else you can make.
+            const free = options.filter((o) => o.id !== f.target && !f.also.some((a) => a.item === o.id));
+            const next = free.find((o) => chainItems.has(o.id) && !RAW_ITEMS.includes(o.id)) ?? free[0];
+            // With "as much as possible", a new product shares the output evenly instead of needing a guessed rate.
+            if (next) update({ also: [...f.also, f.rate === null ? { item: next.id, rate: 0, how: 'share', ratio: 1 } : { item: next.id, rate: 10 }] });
           }}>+ Add product</button>
         </div>
       </section>

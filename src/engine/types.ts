@@ -37,6 +37,12 @@ export const defaultSchematic: SchematicOptions = {
   orientation: 'auto',
 };
 
+/**
+ * An extra product. how: 'fixed' makes `rate`/min; 'share' grows with the main product, `ratio` per 1 of it
+ * (1 = even split); 'leftover' makes as much as is left once the rest is settled (several split it evenly).
+ */
+export interface AlsoProduct { item: string; rate: number; how?: 'fixed' | 'share' | 'leftover'; ratio?: number }
+
 export interface Import { factoryId: string; item: string; rate: number }
 
 /** Machines running one recipe in a factory found in the save. */
@@ -104,8 +110,8 @@ export interface Factory {
   useShards: boolean;
   schematic: SchematicOptions;
   createdAt: number;
-  /** Other products this factory also makes, at fixed rates. */
-  also: { item: string; rate: number }[];
+  /** Other products this factory also makes. */
+  also: AlsoProduct[];
   /** Set when the factory was added from the synced save. */
   game?: BuiltInfo;
 }

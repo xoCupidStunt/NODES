@@ -1,6 +1,7 @@
 // Combining and separating factories — both ones found in the save and ones in the planner.
 import { itemName, POWER } from '../data/game';
 import { combineBuilt, detectFactories, factoryFromFound, matchFound, noRules, outsideSupplyOf, type FoundFactory, type GroupRules } from './gameFactories';
+import { buildPlan } from './plan';
 import { computeUnlocks, type Progress } from './progression';
 import type { GameSync } from './saveSync';
 import type { Factory } from './types';
@@ -170,11 +171,13 @@ export function separateFactory(
     groupRules = splitRules(s, f.game.machineIds, gap);
     parts = pieces.map((ff) => ({ ...make(++n), ...factoryFromFound(ff, named(`${f.name} – ${itemName(ff.target)}`, used)), ...keep }));
   } else if ((f.also ?? []).length) {
+    // Shared and leftover products get the rate the plan works out for them now.
+    const made = Object.fromEntries(buildPlan(f, s.progress).also);
     parts = [
       { ...f, also: [], name: named(f.name, used) },
       ...f.also.map((a) => ({
         ...make(++n), ...keep, name: named(`${f.name} – ${itemName(a.item)}`, used),
-        target: a.item, rate: a.rate, location: f.location, placement: f.placement,
+        target: a.item, rate: (a.how ?? 'fixed') === 'fixed' ? a.rate : Math.round((made[a.item] ?? 0) * 100) / 100 || 10, location: f.location, placement: f.placement,
       })),
     ];
   } else {
