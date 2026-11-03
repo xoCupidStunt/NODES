@@ -8,7 +8,7 @@ import { useStore } from '../state';
 import { foundName, Makes, useFoundFactories } from './GameFactoriesCard';
 import { MapImageCard } from './mapImage';
 import { FULL_VIEW, MapBackdrop, MapTip, NodeLegend, NodeShape, nodeTip, PURITY_R, usePanZoom, WellLayer, wellTip } from './mapKit';
-import { amountName, fmt, ItemTag, mw } from './ui';
+import { amountName, confirmDelete, fmt, ItemTag, mw } from './ui';
 
 type Sel = { kind: 'found' | 'factory'; id: string } | null;
 
@@ -235,7 +235,7 @@ function FoundDetails({ ff, linked, onAdd, onOpen }: { ff: FoundFactory; linked:
 }
 
 function FactoryDetails({ f, rate }: { f: Factory; rate: number | null }) {
-  const { dispatch } = useStore();
+  const { state, dispatch } = useStore();
   return (
     <section className="card world-detail">
       <div className="muted small-text">{f.game ? 'In the planner · linked to your game' : 'In the planner'}</div>
@@ -247,6 +247,7 @@ function FactoryDetails({ f, rate }: { f: Factory; rate: number | null }) {
       <div className="row gap wrap">
         <button className="small" onClick={() => dispatch({ type: 'select', id: f.id, view: f.game ? 'built' : 'results' })}>{f.game ? 'Overview' : 'Results'}</button>
         <button className="small ghost" onClick={() => dispatch({ type: 'select', id: f.id, view: 'map' })}>Placement map</button>
+        <button className="small danger ghost" onClick={() => confirmDelete(f, state.factories) && dispatch({ type: 'remove', id: f.id })}>Delete</button>
       </div>
     </section>
   );

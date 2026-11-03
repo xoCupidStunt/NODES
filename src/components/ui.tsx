@@ -81,3 +81,13 @@ export function Stat({ label, value, sub }: { label: string; value: string; sub?
     </div>
   );
 }
+
+/** Ask before deleting a factory: says what else changes (imports from it, game link). */
+export function confirmDelete(f: { id: string; name: string; game?: unknown }, factories: { id: string; name: string; imports: { factoryId: string }[] }[]) {
+  const users = factories.filter((o) => o.id !== f.id && o.imports.some((i) => i.factoryId === f.id)).map((o) => o.name);
+  const lines = [`Delete “${f.name}”?`];
+  if (users.length) lines.push(`${users.join(', ')} import${users.length === 1 ? 's' : ''} from it — those imports are removed too.`);
+  if (f.game) lines.push('It stays in your game. It will show up again under “found in your game”, so you can add it back.');
+  lines.push('This can’t be undone.');
+  return confirm(lines.join('\n\n'));
+}

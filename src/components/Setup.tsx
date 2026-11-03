@@ -5,7 +5,7 @@ import { rawDemand } from '../engine/placement';
 import type { Factory } from '../engine/types';
 import { useStore } from '../state';
 import { CombineSeparateCard } from './CombineSeparateCard';
-import { fmt, ItemPicker, ItemTag, NumberInput } from './ui';
+import { fmt, ItemPicker, ItemTag, NumberInput, confirmDelete } from './ui';
 
 export function Setup({ f }: { f: Factory }) {
   const { state, dispatch, plans } = useStore();
@@ -145,7 +145,7 @@ export function Setup({ f }: { f: Factory }) {
 
       <div className="row gap">
         <button className="primary" onClick={() => dispatch({ type: 'view', view: f.location ? 'results' : 'map' })}>{f.location ? 'See results →' : 'Place on map →'}</button>
-        <button className="danger ghost" onClick={() => confirm(`Delete ${f.name}?`) && dispatch({ type: 'remove', id: f.id })}>Delete factory</button>
+        <button className="danger ghost" onClick={() => confirmDelete(f, state.factories) && dispatch({ type: 'remove', id: f.id })}>Delete factory</button>
       </div>
     </div>
   );

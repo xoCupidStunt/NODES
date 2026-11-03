@@ -9,7 +9,7 @@ import { useStore } from '../state';
 import { AsBuiltCard } from './AsBuiltCard';
 import { CombineSeparateCard } from './CombineSeparateCard';
 import { ago } from './SaveSyncCard';
-import { fmt, ItemTag, mw, rateText, Stat } from './ui';
+import { fmt, ItemTag, mw, rateText, Stat, confirmDelete } from './ui';
 
 /** A factory that is already built in the game: what it makes, how well, and how to get more out of it. */
 export function BuiltView({ f }: { f: Factory }) {
@@ -87,6 +87,7 @@ export function BuiltView({ f }: { f: Factory }) {
           <button className="primary" onClick={() => dispatch({ type: 'view', view: 'schematic' })}>Generate schematic</button>
           <button onClick={() => dispatch({ type: 'showOnMap', focus: { kind: 'factory', id: f.id } })}>Show on map</button>
           <button className="ghost" onClick={() => dispatch({ type: 'view', view: 'setup' })}>Plan changes…</button>
+          <button className="danger ghost" onClick={() => confirmDelete(f, state.factories) && dispatch({ type: 'remove', id: f.id })}>Delete</button>
         </div>
       </header>
 
