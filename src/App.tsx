@@ -1,11 +1,11 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { MapView } from './components/MapView';
 import { ProgressPanel } from './components/ProgressPanel';
 import { Results } from './components/Results';
 import { SchematicView } from './components/SchematicView';
 import { Setup } from './components/Setup';
 import { itemName } from './data/game';
-import { exportState, newFactory, parseImport, useStore, type View } from './state';
+import { newFactory, useStore, type View } from './state';
 import { rateText } from './components/ui';
 import { SyncStatus } from './components/SyncStatus';
 import { WorldMap } from './components/WorldMap';
@@ -21,7 +21,12 @@ const TABS: { id: View; label: string }[] = [
 
 export default function App() {
   const { state, dispatch, active, plans } = useStore();
-  const fileRef = useRef<HTMLInputElement>(null);
+  // Left menu can be hidden for more room; remembered on this device.
+  const [sideOpen, setSideOpen] = useState(() => { try { return localStorage.getItem('nodes-sidebar') !== 'closed'; } catch { return true; } });
+  const toggleSide = (open: boolean) => {
+    setSideOpen(open);
+    try { localStorage.setItem('nodes-sidebar', open ? 'open' : 'closed'); } catch { /* storage blocked: just don't remember */ }
+  };
   const newInGame = useNewGameFactories();
   // Combine mode: tick factories in the list, pick which one keeps its name and settings.
   const [combining, setCombining] = useState(false);
@@ -45,32 +50,17 @@ export default function App() {
     setTimeout(() => document.getElementById('game-factories')?.scrollIntoView({ behavior: 'smooth' }), 50);
   };
 
-  const doExport = () => {
-    const blob = new Blob([exportState(state)], { type: 'application/json' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'nodes-export.json';
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
-  const doImport = async (file: File) => {
-    try {
-      const data = parseImport(await file.text());
-      dispatch({ type: 'load', state: { ...state, ...data, activeId: data.factories[0]?.id ?? null } });
-    } catch (e) {
-      alert(`Could not import: ${(e as Error).message}`);
-    }
-  };
-
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <div className={`app ${sideOpen ? '' : 'side-closed'}`}>
+      {!sideOpen && <button className="side-open" onClick={() => toggleSide(true)} title="Show menu" aria-label="Show menu">☰</button>}
+      <aside className="sidebar" hidden={!sideOpen}>
         <div className="brand">
           <span className="logo">N</span>
           <div>
             <div className="brand-title">N.O.D.E.S</div>
             <div className="brand-sub">Node Optimization &amp; Deployment Efficiency System</div>
           </div>
+          <button className="side-close" onClick={() => toggleSide(false)} title="Hide menu" aria-label="Hide menu">«</button>
         </div>
         <button className={`nav ${state.view === 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'view', view: 'progress' })}>
           ⚙ Progress <span className="muted">Tier {state.progress.tier} · {state.progress.mam.length} MAM · {state.progress.alts.length} alts</span>
@@ -116,11 +106,6 @@ export default function App() {
               </button>
             );
           })}
-        </div>
-        <div className="side-foot">
-          <button className="small ghost" onClick={doExport}>Export</button>
-          <button className="small ghost" onClick={() => fileRef.current?.click()}>Import</button>
-          <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
         </div>
       </aside>
       <main className="main">

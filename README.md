@@ -10,7 +10,7 @@ A local web app for planning Satisfactory (1.x) factories: what to build, how ma
 npm install
 npm run dev
 ```
-Then open http://localhost:5173. Everything you enter is saved in your browser; use **Export / Import** in the sidebar to back it up or move it.
+Then open http://localhost:5173. Everything you enter is saved in your browser. The « button hides the left menu (☰ brings it back).
 
 ## Features
 
@@ -25,7 +25,7 @@ Then open http://localhost:5173. Everything you enter is saved in your browser; 
 - **Map & placement** — all 608 resource nodes; hover one for its type, purity and rate. Shapes show the type (circle: miner/oil node, diamond: resource well satellite, triangle: geyser) and outlines the purity; each of the 17 resource wells gets a ring and a hexagon where its Pressurizer goes. *Suggest placement* finds the spot with the shortest belts to enough free nodes (and to factories you import from) and claims them; or place manually and claim nodes by clicking. Highlights the nearest free nodes and factories with parts to spare. The world map picture comes from the [Satisfactory Wiki](https://satisfactory.fandom.com/wiki/Map) (game art © Coffee Stain Studios); it is loaded from the wiki, not stored in this repo, and can be hidden or faded.
 - **Logistics check** — on the Map and Results steps of a new factory: warns when resources or imports travel over 1 km (with options: process near the nodes, claim closer nodes, or plan a train/truck route), and lists the bigger parts no other factory makes, with a *Create factory* button that sets one up and imports it.
 - **Results** — machines per recipe, one clock speed per recipe, shards, power, extractors per group (expand for each node), a layout (flow) diagram with belt/pipe tiers, and optimisation suggestions (bottlenecks, alternates worth hunting, belts, byproducts…).
-- **Schematic** — to-scale floor plan on an 8 m foundation grid: machine rows with manifolds, a belt bus, input/output ports, floors with lifts, perimeter walls, power poles. Adjust machine spacing, row walkways, machines per row, floors, snapping, and hide belts under the floor or behind walls. Miners, extractors, imports and outside supply are drawn in a yard outside the input wall with distance and direction, and the plan is turned so its input wall faces where most supply comes from (or a side you pick). Includes a bill of materials. Export as SVG/PNG or print.
+- **Schematic** — to-scale floor plan on an 8 m foundation grid: machine rows with manifolds, a belt bus, input/output ports, floors with lifts, perimeter walls, power poles. Adjust machine spacing, row walkways, machines per row, floors, snapping, and hide belts under the floor or behind walls. Miners, extractors, imports and outside supply are drawn in a yard outside the input wall with distance and direction, and the plan is turned so its input wall faces where most supply comes from (or a side you pick). Zoom with −/+/Fit (or Ctrl+scroll). Includes a bill of materials. Export as SVG/PNG or print.
 
 ## Game data
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type SVGProps } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type SVGProps } from 'react';
 import { FOUNDATION as F, isFluid, itemColor, itemName, MACHINE_COLORS } from '../data/game';
 import { buildSchematic, facingFor, type BeltPath, type Facing, type Floor, type Schematic, type SchematicContext, type SourceBox } from '../engine/schematic';
 import { defaultSchematic, type Factory, type SchematicOptions } from '../engine/types';
@@ -19,6 +19,56 @@ export function SchematicView({ f }: { f: Factory }) {
   const [scale, setScale] = useState(5);
   const [floorSel, setFloorSel] = useState<number | 'all'>('all');
   const svgRef = useRef<SVGSVGElement>(null);
+  // Zoom: keep the point in the middle of the view in the middle after the size changes.
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const keepCentre = useRef<{ rx: number; ry: number } | null>(null);
+  const zoomTo = (next: (s: number) => number) => {
+    const el = canvasRef.current;
+    if (el) keepCentre.current = { rx: (el.scrollLeft + el.clientWidth / 2) / el.scrollWidth, ry: (el.scrollTop + el.clientHeight / 2) / el.scrollHeight };
+    setScale((cur) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(next(cur) * 10) / 10)));
+  };
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    const c = keepCentre.current;
+    if (!el || !c) return;
+    el.scrollLeft = c.rx * el.scrollWidth - el.clientWidth / 2;
+    el.scrollTop = c.ry * el.scrollHeight - el.clientHeight / 2;
+    keepCentre.current = null;
+  }, [scale]);
+  // Fit: labels and margins don't scale with zoom, so re-measure and adjust (a few passes) until it fits.
+  const fitting = useRef(0);
+  const fitWidth = () => { fitting.current = 10; setFitTick((t) => t + 1); };
+  const [fitTick, setFitTick] = useState(0);
+  useLayoutEffect(() => {
+    const el = canvasRef.current;
+    const svg = svgRef.current;
+    if (!fitting.current || !el || !svg) return;
+    fitting.current--;
+    const want = el.clientWidth - 24;
+    const have = svg.getBoundingClientRect().width;
+    if (Math.abs(have - want) < 12) { fitting.current = 0; return; }
+    setScale((cur) => {
+      const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.floor(cur * (want / have) * 10) / 10));
+      if (next === cur) fitting.current = 0;
+      return next;
+    });
+    el.scrollLeft = 0;
+  });
+  void fitTick;
+  // Ctrl/⌘ + scroll zooms the drawing (plain scroll still scrolls it).
+  const zoomRef = useRef(zoomTo);
+  zoomRef.current = zoomTo;
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomRef.current((cur) => cur * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  });
   // Each floor's real drawn extent (labels included), measured after render; the first render estimates.
   const floorRefs = useRef<Record<number, SVGGElement | null>>({});
   const [measured, setMeasured] = useState<Record<number, Box>>({});
@@ -129,7 +179,7 @@ export function SchematicView({ f }: { f: Factory }) {
         </section>
         <section className="card">
           <h3>View</h3>
-          <Range label="Zoom" value={scale} min={2} max={14} step={1} unit="px/m" onChange={setScale} />
+          <Range label="Zoom" value={scale} min={ZOOM_MIN} max={ZOOM_MAX} step={0.5} unit="px/m" onChange={(v) => zoomTo(() => v)} />
           <label className="field">Floor
             <select value={String(floorSel)} onChange={(e) => setFloorSel(e.target.value === 'all' ? 'all' : Number(e.target.value))}>
               <option value="all">All floors</option>
@@ -155,7 +205,17 @@ export function SchematicView({ f }: { f: Factory }) {
           {sch.floors.length > 1 && <> · storey heights {sch.floors.map((fl) => `${fl.storeyHeight} m`).join(' / ')}</>}
           <span className="muted"> · 1 grid square = 1 foundation (8 m) · input wall faces {FACING_NAME[sch.facing]}</span>
         </div>
-        <div className="sch-canvas">
+        <div className="sch-canvas-wrap">
+        <div className="sch-zoom" role="group" aria-label="Zoom">
+          <button className="small" onClick={() => zoomTo((c) => c / 1.25)} title="Zoom out" aria-label="Zoom out">−</button>
+          <span className="sch-zoom-level" title="Pixels per metre">{fmt(scale, 1)} px/m</span>
+          <button className="small" onClick={() => zoomTo((c) => c * 1.25)} title="Zoom in" aria-label="Zoom in">+</button>
+          <button className="small ghost" onClick={() => {
+            const el = canvasRef.current;
+            if (el) fitWidth();
+          }} title="Fit the width of the drawing">Fit</button>
+        </div>
+        <div className="sch-canvas" ref={canvasRef}>
           <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" width={totalW} height={totalH} style={{ background: C.bg }} fontFamily="Segoe UI, Roboto, sans-serif">
             <Defs sch={sch} />
             <rect width={totalW} height={totalH} fill={C.bg} />
@@ -182,6 +242,7 @@ export function SchematicView({ f }: { f: Factory }) {
               return g;
             })}
           </svg>
+        </div>
         </div>
 
         <div className="two-col">
@@ -450,3 +511,6 @@ function Yard({ b, s }: { b: SourceBox; s: number }) {
     </g>
   );
 }
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 16;
