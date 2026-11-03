@@ -126,6 +126,32 @@ export function suggestions(f: Factory, plan: Plan, progress: Progress, factorie
     }
   }
 
+  // 1b. Water extractors: overclocked, fewer of these big buildings do the same job.
+  const pumps = plan.extraction.filter((e) => e.extractor.id === 'Build_WaterPump_C' && !e.node);
+  const pumpCount = pumps.reduce((a, e) => a + e.count, 0);
+  const water = pumps.reduce((a, e) => a + e.rate, 0);
+  if (pumpCount > 1 && !(f.useShards && u.overclock && progress.shards > 0)) {
+    const wp = pumps[0].extractor;
+    const fewer = Math.ceil(water / (wp.rate * 2.5) - 1e-9);
+    if (fewer < pumpCount) {
+      const clock = (water / fewer / wp.rate) * 100;
+      const shards = fewer * shardsFor(clock);
+      const powerNow = pumps.reduce((a, e) => a + e.power, 0);
+      const powerThen = clockPower(wp.power, 1.321929, clock) * fewer;
+      const how = !u.overclock
+        ? (availableOnly ? '' : 'Research “Overclock Production” in the MAM, then turn on “Use power shards” in step 1')
+        : progress.shards <= 0 ? 'Collect power shards, then turn on “Use power shards” in step 1' : 'Turn on “Use power shards” in step 1 (Overclock settings)';
+      if (how) {
+        tips.push({
+          kind: 'clock', score: 35,
+          title: `${fewer} Water Extractors instead of ${pumpCount}`,
+          detail: `${pumpCount} at ${fmt(pumps[0].clock, 1)}% pump ${fmt(water)} m³/min. ${fewer} at ${fmt(clock, 1)}% do the same with ${shards} power shards, using about ${fmt(powerThen - powerNow, 0)} MW more.`,
+          steps: [how],
+        });
+      }
+    }
+  }
+
   // 2. Locked alternate recipes that would help (try each relevant one).
   const lockedAlts = availableOnly ? [] : Object.values(recipes).filter((r) => r.alt && !u.recipes.has(r.id) && r.out.some(([i]) => chainItems.has(i)));
   const baseScore = objective(f, plan);

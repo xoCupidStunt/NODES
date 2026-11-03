@@ -181,9 +181,26 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   };
   const importOf = (item: string) => f.imports.filter((x) => x.item === item).reduce((a, b) => a + b.rate, 0);
   // Overclocked miners get their shards first: more resources lift the whole factory.
-  const minerShards = Object.entries(solve.inputs)
+  const nodeShards = Object.entries(solve.inputs)
     .flatMap(([item, rate]) => fillNodes(item, Math.max(0, rate - importOf(item))))
     .reduce((a, x) => a + shardsFor(x.clock), 0);
+  // Water pumped on site: with shards on, fewer Water Extractors run faster (up to the max clock, as far as
+  // shards allow) — they're big buildings, so fewer is usually the point of overclocking them.
+  const waterNeed = WATER in solve.inputs
+    ? Math.max(0, solve.inputs[WATER] - importOf(WATER) - fillNodes(WATER, Math.max(0, solve.inputs[WATER] - importOf(WATER))).reduce((a, x) => a + x.use, 0))
+    : 0;
+  const pumpsFor = (need: number, clockCap: number) => {
+    const wp = extractors.Build_WaterPump_C;
+    const count = Math.max(1, Math.ceil(need / (wp.rate * (clockCap / 100)) - 1e-9));
+    const clock = round((need / count / wp.rate) * 100, 2);
+    return { count, clock, shards: count * shardsFor(clock) };
+  };
+  let waterCap = 100;
+  if (waterNeed > 1e-6 && u.overclock && f.useShards && progress.shards > 0) {
+    const top = Math.min(250, Math.max(100, f.clockCap));
+    waterCap = [top, 200, 150, 100].filter((c) => c <= top).find((c) => nodeShards + pumpsFor(waterNeed, c).shards <= progress.shards) ?? 100;
+  }
+  const minerShards = nodeShards + (waterNeed > 1e-6 ? pumpsFor(waterNeed, waterCap).shards : 0);
 
   // ---- machines & clocks ----
   const overclockOk = u.overclock && f.useShards && progress.shards > 0;
@@ -296,8 +313,7 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     if (fromNodes > 0) inputs.push({ item, rate: fromNodes, source: 'nodes' });
     if (left > 1e-6 && item === WATER) {
       const wp = extractors.Build_WaterPump_C;
-      const count = Math.ceil(left / wp.rate - 1e-9);
-      const clock = round((left / count / wp.rate) * 100, 2);
+      const { count, clock } = pumpsFor(left, waterCap);
       extraction.push({ item, node: null, extractor: wp, count, clock, rate: left, power: clockPower(wp.power, 1.321929, clock) * count });
       inputs.push({ item, rate: left, source: 'water' });
       left = 0;

@@ -184,3 +184,27 @@ describe('overclocking miners', () => {
     expect(on.shardsUsed).toBeLessThanOrEqual(10);
   });
 });
+
+describe('overclocking water extractors', () => {
+  it('uses fewer, faster Water Extractors when shards are on, and suggests it when off', async () => {
+    const { game } = await import('../../data/game');
+    const oc = game.schematics.find((s) => s.flags?.includes('BP_UnlockBuildOverclock_C'))!;
+    const pr = { ...progress(8), mam: [oc.id], shards: 20 };
+    // Alumina Solution needs 1.5 m³ water per unit: 300/min of it needs about 450 m³/min of water.
+    const base = { target: 'Desc_AluminaSolution_C', rate: 300, mode: 'power' as const, unlimitedRaw: true, excluded: Object.keys(game.recipes).filter((id) => /Alternate/.test(id)) };
+    const off = buildPlan(factory({ ...base, useShards: false }), pr);
+    const pumpsOff = off.extraction.filter((e) => e.extractor.id === 'Build_WaterPump_C');
+    const countOff = pumpsOff.reduce((a, e) => a + e.count, 0);
+    expect(pumpsOff.every((e) => e.clock <= 100)).toBe(true);
+    const tip = suggestions(factory({ ...base, useShards: false }), off, pr, [], {}).find((t) => /Water Extractors instead of/.test(t.title));
+    expect(tip?.steps?.join(' ')).toMatch(/Use power shards/);
+
+    const on = buildPlan(factory({ ...base, useShards: true, clockCap: 250 }), pr);
+    const pumpsOn = on.extraction.filter((e) => e.extractor.id === 'Build_WaterPump_C');
+    const countOn = pumpsOn.reduce((a, e) => a + e.count, 0);
+    expect(countOn).toBeLessThan(countOff);
+    expect(pumpsOn[0].clock).toBeGreaterThan(100);
+    expect(pumpsOn.reduce((a, e) => a + e.rate, 0)).toBeCloseTo(pumpsOff.reduce((a, e) => a + e.rate, 0), 3);
+    expect(on.shardsUsed).toBeLessThanOrEqual(20);
+  });
+});
