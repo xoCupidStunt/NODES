@@ -11,6 +11,7 @@ import { SyncStatus } from './components/SyncStatus';
 import { WorldMap } from './components/WorldMap';
 import { BuiltView } from './components/BuiltView';
 import { useNewGameFactories } from './components/GameFactoriesCard';
+import { AccountPanel, CloudBox } from './components/AccountPanel';
 
 const TABS: { id: View; label: string }[] = [
   { id: 'setup', label: '1 · Setup' },
@@ -62,6 +63,7 @@ export default function App() {
           </div>
           <button className="side-close" onClick={() => toggleSide(false)} title="Hide menu" aria-label="Hide menu">«</button>
         </div>
+        <CloudBox />
         <button className={`nav ${state.view === 'progress' ? 'on' : ''}`} onClick={() => dispatch({ type: 'view', view: 'progress' })}>
           ⚙ Progress <span className="muted">Tier {state.progress.tier} · {state.progress.mam.length} MAM · {state.progress.alts.length} alts</span>
         </button>
@@ -109,7 +111,9 @@ export default function App() {
         </div>
       </aside>
       <main className="main">
-        {state.view === 'world' ? (
+        {state.view === 'account' ? (
+          <AccountPanel />
+        ) : state.view === 'world' ? (
           <WorldMap />
         ) : state.view === 'progress' || !active ? (
           state.view === 'progress' ? <ProgressPanel /> : <Welcome />

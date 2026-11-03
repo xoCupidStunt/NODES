@@ -5,13 +5,14 @@ import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
 import { noRules, type FoundFactory, type GroupRules } from './engine/gameFactories';
 import { combineFactories, combineFound, foundOf, refreshLinked, separateFactory, splitRules, undoFound, withGameSupply, withPowerProduct } from './engine/grouping';
+import { applyDocs, type DocRow } from './cloud/docs';
 
-export type View = 'progress' | 'world' | 'built' | 'setup' | 'results' | 'map' | 'schematic';
+export type View = 'progress' | 'world' | 'built' | 'setup' | 'results' | 'map' | 'schematic' | 'account';
 
 /** Something to centre the world map on. */
 export type MapFocus = { kind: 'found' | 'factory'; id: string } | null;
 
-interface State {
+export interface State {
   progress: Progress;
   factories: Factory[];
   activeId: string | null;
@@ -45,9 +46,32 @@ type Action =
   | { type: 'separateFound'; machineIds: string[]; gap: number }
   | { type: 'undoFound'; found: FoundFactory }
   | { type: 'combineFactories'; ids: string[] }
-  | { type: 'separateFactory'; id: string; gap: number };
+  | { type: 'separateFactory'; id: string; gap: number }
+  /** Changes another player made to the shared world (already normalised). */
+  | { type: 'remote'; rows: DocRow[] };
 
-const KEY = 'ficsit-planner-v1';
+/** This device's own (offline) plans. A cloud world is cached under its own key instead. */
+export const KEY = 'ficsit-planner-v1';
+/** The cloud world last opened on this device (see cloud/CloudProvider). */
+export const WORLD_PREF = 'nodes-world';
+export const worldCacheKey = (id: string) => `${KEY}@${id}`;
+/** Signed in last time: start from that world's cached copy, so local plans don't flash up while it loads. */
+function initialKey() {
+  try {
+    const world = localStorage.getItem(WORLD_PREF);
+    const signedIn = Object.keys(localStorage).some((k) => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    if (world && signedIn && import.meta.env.VITE_SUPABASE_URL && localStorage.getItem(worldCacheKey(world))) return worldCacheKey(world);
+  } catch {
+    /* storage blocked */
+  }
+  return KEY;
+}
+let storageKey = initialKey();
+/** Where the store saves on this device: the offline plans, or a cloud world's cache. */
+export function setStorageKey(k: string) {
+  storageKey = k;
+}
+export const getStorageKey = () => storageKey;
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
@@ -68,7 +92,7 @@ function reducer(s: State, a: Action): State {
     case 'select': {
       // Factories built in the game open on their overview; planned ones on the planner steps.
       const f = s.factories.find((x) => x.id === a.id);
-      const fallback = f?.game ? 'built' : s.view === 'progress' || s.view === 'world' || s.view === 'built' ? 'setup' : s.view;
+      const fallback = f?.game ? 'built' : s.view === 'progress' || s.view === 'world' || s.view === 'built' || s.view === 'account' ? 'setup' : s.view;
       return { ...s, activeId: a.id, view: a.view ?? fallback };
     }
     case 'view':
@@ -106,6 +130,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, sync: { ...s.sync, ...a.patch } };
     case 'forgetGame':
       return { ...s, game: null };
+    case 'remote':
+      return applyDocs(s, a.rows);
   }
 }
 
@@ -141,23 +167,36 @@ export function newFactory(n: number): Factory {
 
 const defaultSync: State['sync'] = { session: null, auto: true };
 
-function load(): State {
+/** Fill in fields added in later versions. */
+export function normalizeFactory(f: Factory): Factory {
+  return withGameSupply(withPowerProduct(plannedMode({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } })));
+}
+export function normalizeGame(g: GameSync | null | undefined): GameSync | null {
+  if (!g) return null;
+  // Older saves stored found factories instead of the layout; resync to fill it in.
+  return g.layout ? g : { ...g, layout: { machines: [], extractors: [], labels: [] } };
+}
+
+export function emptyState(): State {
+  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync, foundNames: {}, mapFocus: null, groupRules: noRules };
+}
+
+/** The saved state under a storage key (this device's plans by default). */
+export function loadFrom(key: string): State {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key);
     if (raw) {
       const s = JSON.parse(raw) as State;
-      // Fill in fields added in later versions.
       s.progress = { ...defaultProgress, ...s.progress };
-      s.factories = s.factories.map((f) => withGameSupply(withPowerProduct(plannedMode({ ...newFactory(0), ...f, schematic: { ...defaultSchematic, ...f.schematic } }))));
-      // Older saves stored found factories instead of the layout; resync to fill it in.
-      if (s.game && !s.game.layout) s.game.layout = { machines: [], extractors: [], labels: [] };
-      return { ...s, view: s.view ?? 'setup', game: s.game ?? null, foundNames: s.foundNames ?? {}, mapFocus: null, groupRules: s.groupRules ?? noRules, sync: { ...defaultSync, ...s.sync } };
+      s.factories = s.factories.map(normalizeFactory);
+      return { ...s, view: s.view ?? 'setup', game: normalizeGame(s.game), foundNames: s.foundNames ?? {}, mapFocus: null, groupRules: s.groupRules ?? noRules, sync: { ...defaultSync, ...s.sync } };
     }
   } catch {
     /* ignore broken storage */
   }
-  return { progress: defaultProgress, factories: [], activeId: null, view: 'progress', game: null, sync: defaultSync, foundNames: {}, mapFocus: null, groupRules: noRules };
+  return emptyState();
 }
+const load = () => loadFrom(storageKey);
 
 interface Ctx {
   state: State;
@@ -175,7 +214,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, load);
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey, JSON.stringify(state));
     } catch {
       /* storage full or blocked */
     }

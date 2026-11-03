@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@etothepii/satisfactory-file-parser": "^4.1.2",
+    "@supabase/supabase-js": "^2.118.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "yalps": "^0.5.6"
