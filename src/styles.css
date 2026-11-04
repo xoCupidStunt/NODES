@@ -390,3 +390,16 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .list-toggle .caret { width: 10px; display: inline-block; }
 .list-toggle .count { background: var(--panel2); border-radius: 8px; padding: 0 6px; font-size: 10px; }
 .factory-list[hidden] { display: none; }
+
+/* Account button, top right */
+.account-menu { position: fixed; top: 10px; right: 16px; z-index: 30; }
+.account-button { width: 36px; height: 36px; border-radius: 50%; padding: 0; overflow: hidden; display: grid; place-items: center; font-weight: 700; background: var(--panel2); border: 2px solid var(--line); }
+.account-button:hover, .account-button.on, .account-button[aria-expanded="true"] { border-color: var(--accent); }
+.account-button img { width: 100%; height: 100%; object-fit: cover; }
+.account-dropdown { position: absolute; right: 0; top: 44px; min-width: 190px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 2px; }
+.account-dropdown-head { padding: 6px 8px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; display: flex; flex-direction: column; gap: 2px; }
+.account-dropdown button { text-align: left; background: transparent; border-color: transparent; padding: 7px 8px; }
+.account-dropdown button:hover { background: var(--panel2); }
+/* Keep page headers clear of the account button */
+.top { padding-right: 68px; }
+.main > .content > h1:first-child { padding-right: 52px; }

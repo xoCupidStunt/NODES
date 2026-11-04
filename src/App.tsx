@@ -12,6 +12,7 @@ import { WorldMap } from './components/WorldMap';
 import { BuiltView } from './components/BuiltView';
 import { useNewGameFactories } from './components/GameFactoriesCard';
 import { AccountPanel, CloudBox } from './components/AccountPanel';
+import { AccountMenu, ProfilePage } from './components/AccountMenu';
 
 const TABS: { id: View; label: string }[] = [
   { id: 'setup', label: '1 · Setup' },
@@ -118,8 +119,11 @@ export default function App() {
           })}
         </div>
       </aside>
+      <AccountMenu />
       <main className="main">
-        {state.view === 'account' ? (
+        {state.view === 'profile' ? (
+          <ProfilePage />
+        ) : state.view === 'account' ? (
           <AccountPanel />
         ) : state.view === 'world' ? (
           <WorldMap />

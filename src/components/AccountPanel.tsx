@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { providers } from '../cloud/client';
-import { accountOf, useCloud, type Member, type World } from '../cloud/CloudProvider';
+import { useCloud, type Member, type World } from '../cloud/CloudProvider';
 
 function DiscordIcon() {
   return (
@@ -35,7 +35,7 @@ export function CloudBox() {
           {!c.world && <option value="">Loading…</option>}
           {c.worlds.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
-        <button className="small ghost" onClick={open} title="Account and sharing">⚙</button>
+        <button className="small ghost" onClick={open} title="World settings">⚙</button>
       </div>
       <div className="muted small-text">
         {STATUS_TEXT[c.status]}
@@ -123,14 +123,11 @@ export function SignIn() {
 
 function SignedIn() {
   const c = useCloud();
-  const [name, setName] = useState(c.name);
-  useEffect(() => setName(c.name), [c.name]);
   const [newName, setNewName] = useState('');
   const [from, setFrom] = useState<'empty' | 'current' | 'device'>('empty');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const deviceCount = loadFrom(KEY).factories.length;
-  const who = accountOf(c.user!);
   const run = async (job: () => Promise<void>) => {
     setBusy(true);
     try { await job(); } catch { /* shown via c.error */ } finally { setBusy(false); }
@@ -138,20 +135,8 @@ function SignedIn() {
 
   return (
     <>
+      <h1>World settings</h1>
       {c.error && <p className="warn-text card">{c.error}</p>}
-      <section className="card">
-        <h2>Your account</h2>
-        <div className="row gap wrap account-who">
-          {who.avatar && <img className="avatar" src={who.avatar} alt="" referrerPolicy="no-referrer" />}
-          <span className="muted">Signed in{who.via ? ` with ${who.via}` : ''} as <b>{who.label}</b></span>
-          <button className="small ghost" onClick={() => void c.signOut()}>Sign out</button>
-        </div>
-        <form className="row gap wrap" style={{ marginTop: 10 }} onSubmit={(e) => { e.preventDefault(); void run(() => c.setName(name)); }}>
-          <label>Name other players see <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} /></label>
-          <button className="small" disabled={busy || !name.trim() || name.trim() === c.name}>Save</button>
-        </form>
-      </section>
-
       <section className="card">
         <h2>Worlds</h2>
         <p className="muted small-text">

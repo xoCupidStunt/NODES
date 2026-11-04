@@ -123,7 +123,7 @@ export function SaveSyncCard() {
         {g && <button className="small ghost" onClick={() => dispatch({ type: 'forgetGame' })}>Clear synced map data</button>}
         <input ref={fileRef} type="file" accept=".sav" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) sync.importFile(f); e.target.value = ''; }} />
       </div>
-      {g && <p className="muted small-text">Syncing replaces the tier, milestone, research and alternate ticks below with what’s in your save. Change them by hand any time — the next new save will overwrite them again{state.sync.auto && sync.folder === 'watching' ? ' (turn off Auto-sync to keep your edits)' : ''}.</p>}
+      {g && <p className="muted small-text">Syncing replaces the tier, milestone, research and alternate ticks on the Progress page with what’s in your save. Change them by hand any time — the next new save will overwrite them again{state.sync.auto && sync.folder === 'watching' ? ' (turn off Auto-sync to keep your edits)' : ''}.</p>}
     </section>
   );
 }

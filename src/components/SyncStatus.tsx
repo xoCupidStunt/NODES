@@ -3,7 +3,7 @@ import { useStore } from '../state';
 import { useSaveSync } from '../sync/SaveSyncProvider';
 import { ago } from './SaveSyncCard';
 
-/** One-line sync state under the Progress button in the sidebar. */
+/** One-line sync state under the Progress button in the sidebar; opens Your account, where syncing is set up. */
 export function SyncStatus() {
   const { state, dispatch } = useStore();
   const sync = useSaveSync();
@@ -13,12 +13,12 @@ export function SyncStatus() {
     return () => window.clearInterval(id);
   }, []);
 
-  const open = () => dispatch({ type: 'view', view: 'progress' });
+  const open = () => dispatch({ type: 'view', view: 'profile' });
   let text: string;
   let cls = '';
   if (sync.busy) { text = `Reading save… ${Math.round(sync.busy.progress * 100)}%`; cls = 'busy'; }
   else if (sync.folder === 'needs-permission') { text = 'Click to resume game sync'; cls = 'attention'; }
-  else if (sync.message?.tone === 'error') { text = 'Sync problem — see Progress'; cls = 'attention'; }
+  else if (sync.message?.tone === 'error') { text = 'Sync problem — see Your account'; cls = 'attention'; }
   else if (state.game) { text = `Synced ${ago(state.game.syncedAt)}`; cls = sync.folder === 'watching' && state.sync.auto ? 'live' : ''; }
   else text = 'Not synced with a save';
 
