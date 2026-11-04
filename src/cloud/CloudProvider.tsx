@@ -82,7 +82,25 @@ function hintFor(msg: string) {
   return '';
 }
 
-const nameOf = (u: User | null) => (u ? ((u.user_metadata?.name as string | undefined) ?? u.email?.split('@')[0] ?? 'Pioneer') : '');
+/** How the account signed in, its Discord (or other) name, and picture. Email is only a fallback. */
+export function accountOf(u: User) {
+  const m = (u.user_metadata ?? {}) as Record<string, unknown>;
+  const claims = (m.custom_claims ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().replace(/#0$/, '') : undefined);
+  const provider = (u.app_metadata?.provider as string | undefined) ?? '';
+  const via = provider === 'discord' ? 'Discord' : provider === 'google' ? 'Google' : provider === 'github' ? 'GitHub' : provider === 'email' ? '' : provider;
+  // Discord gives a display name (global_name) and a username; prefer the display name.
+  const social = str(claims.global_name) ?? str(m.full_name) ?? str(m.name) ?? str(m.user_name) ?? str(m.preferred_username);
+  const label = (provider && provider !== 'email' ? social : undefined) ?? u.email ?? social ?? 'Pioneer';
+  return { label, via, avatar: str(m.avatar_url) ?? str(m.picture), social };
+}
+
+/** The name other players see: one set in the app, else the Discord name, else the start of the email. */
+const nameOf = (u: User | null) => {
+  if (!u) return '';
+  const set = u.user_metadata?.display_name as string | undefined;
+  return set?.trim() || accountOf(u).social || u.email?.split('@')[0] || 'Pioneer';
+};
 const codeFrom = (s: string) => {
   const t = s.trim();
   try { return new URL(t).searchParams.get('join') ?? t; } catch { return t; }
@@ -376,7 +394,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       },
       setName: (name) => guard(async () => {
         const sb = ensure();
-        const { data, error: e } = await sb.auth.updateUser({ data: { name: name.trim() } });
+        const { data, error: e } = await sb.auth.updateUser({ data: { display_name: name.trim() } });
         fail(e);
         if (data.user) setUser(data.user);
         await sb.from('world_members').update({ display_name: name.trim() }).eq('user_id', data.user!.id);

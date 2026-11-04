@@ -1,6 +1,14 @@
 import { useEffect, useState } from 'react';
 import { providers } from '../cloud/client';
-import { useCloud, type Member, type World } from '../cloud/CloudProvider';
+import { accountOf, useCloud, type Member, type World } from '../cloud/CloudProvider';
+
+function DiscordIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor">
+      <path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.6 1.3a18.3 18.3 0 0 0-5.5 0L8.6 3a19.7 19.7 0 0 0-4.9 1.4C.6 9-.3 13.6.2 18.1a19.9 19.9 0 0 0 6 3l1.3-2a12.9 12.9 0 0 1-2-1l.5-.4a14.2 14.2 0 0 0 12.2 0l.5.4a12.9 12.9 0 0 1-2 1l1.3 2a19.8 19.8 0 0 0 6-3c.5-5.2-.9-9.7-3.5-13.7ZM8.5 15.4c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4Zm7 0c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4Z" />
+    </svg>
+  );
+}
 import { KEY, loadFrom, useStore } from '../state';
 
 const PROVIDER_NAMES: Record<string, string> = { discord: 'Discord', google: 'Google', github: 'GitHub', twitch: 'Twitch' };
@@ -67,6 +75,8 @@ export function SignIn() {
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Discord first: it's the main way in.
+  const ordered = [...providers].sort((a, b) => (b === 'discord' ? 1 : 0) - (a === 'discord' ? 1 : 0));
   const send = async () => {
     setBusy(true);
     setErr(null);
@@ -88,20 +98,23 @@ export function SignIn() {
       <p className="muted small-text">
         Signing in saves your plans online, so they’re the same on any computer, and lets you share a world with the people you play with. The first time, the plans in this browser become your own world.
       </p>
+      {ordered.length > 0 && (
+        <div className="signin-providers">
+          {ordered.map((p, i) => (
+            <button key={p} className={`signin-provider ${p} ${i === 0 ? 'primary' : ''}`} onClick={() => void c.signInWith(p).catch((e: Error) => setErr(e.message))}>
+              {p === 'discord' && <DiscordIcon />}Sign in with {PROVIDER_NAMES[p] ?? p}
+            </button>
+          ))}
+        </div>
+      )}
+      {ordered.length > 0 && <div className="signin-or"><span>or use email</span></div>}
       {sent ? (
         <p className="ok-text">Check <b>{email}</b> for a sign-in link. Open it in this browser.</p>
       ) : (
         <form className="row gap wrap" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <input type="email" required placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} aria-label="Email" style={{ minWidth: 240 }} />
-          <button className="primary" disabled={busy || !email.includes('@')}>Email me a sign-in link</button>
+          <button className={ordered.length ? '' : 'primary'} disabled={busy || !email.includes('@')}>Email me a sign-in link</button>
         </form>
-      )}
-      {providers.length > 0 && (
-        <div className="row gap wrap" style={{ marginTop: 10 }}>
-          {providers.map((p) => (
-            <button key={p} onClick={() => void c.signInWith(p).catch((e: Error) => setErr(e.message))}>Sign in with {PROVIDER_NAMES[p] ?? p}</button>
-          ))}
-        </div>
       )}
       {err && <p className="warn-text">{err}</p>}
     </section>
@@ -117,6 +130,7 @@ function SignedIn() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const deviceCount = loadFrom(KEY).factories.length;
+  const who = accountOf(c.user!);
   const run = async (job: () => Promise<void>) => {
     setBusy(true);
     try { await job(); } catch { /* shown via c.error */ } finally { setBusy(false); }
@@ -127,8 +141,9 @@ function SignedIn() {
       {c.error && <p className="warn-text card">{c.error}</p>}
       <section className="card">
         <h2>Your account</h2>
-        <div className="row gap wrap">
-          <span className="muted">Signed in as <b>{c.user!.email}</b></span>
+        <div className="row gap wrap account-who">
+          {who.avatar && <img className="avatar" src={who.avatar} alt="" referrerPolicy="no-referrer" />}
+          <span className="muted">Signed in{who.via ? ` with ${who.via}` : ''} as <b>{who.label}</b></span>
           <button className="small ghost" onClick={() => void c.signOut()}>Sign out</button>
         </div>
         <form className="row gap wrap" style={{ marginTop: 10 }} onSubmit={(e) => { e.preventDefault(); void run(() => c.setName(name)); }}>

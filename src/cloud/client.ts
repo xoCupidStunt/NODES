@@ -32,4 +32,4 @@ export const supabase: SupabaseClient | null = cloudConfigured ? createClient(__
 export const providers = __SUPABASE_PROVIDERS__
   .split(',')
   .map((p) => p.trim().toLowerCase())
-  .filter(Boolean);
+  .filter((p) => p && p !== 'email');
