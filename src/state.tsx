@@ -60,7 +60,7 @@ function initialKey() {
   try {
     const world = localStorage.getItem(WORLD_PREF);
     const signedIn = Object.keys(localStorage).some((k) => k.startsWith('sb-') && k.endsWith('-auth-token'));
-    if (world && signedIn && import.meta.env.VITE_SUPABASE_URL && localStorage.getItem(worldCacheKey(world))) return worldCacheKey(world);
+    if (world && signedIn && __SUPABASE_URL__ && localStorage.getItem(worldCacheKey(world))) return worldCacheKey(world);
   } catch {
     /* storage blocked */
   }

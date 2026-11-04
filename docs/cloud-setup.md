@@ -13,15 +13,15 @@ N.O.D.E.S works offline with no setup. Plans are saved in the browser. Adding a 
    - **Site URL:** `https://node-system.vercel.app`
    - **Redirect URLs:** add `https://node-system.vercel.app/**` and `http://localhost:5173/**`
 4. Copy the keys. Go to **Project Settings → API** (or **Data API**) and copy the **Project URL** and the **anon / publishable** key. The anon key is meant to be public: what each player can see is controlled by the rules in `schema.sql`. Never use the `service_role` / secret key in the app.
-5. Add the keys to Vercel. Go to **Project → Settings → Environment Variables**, add the two below, then redeploy:
-   - `VITE_SUPABASE_URL` = the Project URL
-   - `VITE_SUPABASE_ANON_KEY` = the anon key
+5. Add the keys to Vercel. Go to **Project → Settings → Environment Variables**, add the two below (no `VITE_` prefix needed; only these named values reach the browser), then redeploy:
+   - `SUPABASE_URL` = the Project URL
+   - `SUPABASE_ANON_KEY` = the anon key
 6. For local development, put the same two lines in a file named `.env.local` in the repository root. Git ignores that file.
 
 ## Optional: Discord or Google sign-in
 
 1. Turn the provider on under **Authentication → Sign In / Providers**. Supabase walks you through creating the Discord or Google app.
-2. Add `VITE_SUPABASE_PROVIDERS=discord,google` to Vercel (and `.env.local`) and redeploy.
+2. Add `SUPABASE_PROVIDERS=discord,google` to Vercel (and `.env.local`) and redeploy.
 
 ## Email limits
 
