@@ -83,6 +83,7 @@ function SignIn() {
   return (
     <section className="card">
       <h2>Sign in</h2>
+      {c.error && <p className="warn-text">{c.error}</p>}
       {c.pendingJoin && <p className="ok-text">You’ve been invited to a shared world. Sign in and you’ll join it straight away.</p>}
       <p className="muted small-text">
         Signing in saves your plans online, so they’re the same on any computer, and lets you share a world with the people you play with. The first time, the plans in this browser become your own world.

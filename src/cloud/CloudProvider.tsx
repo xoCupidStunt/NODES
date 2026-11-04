@@ -5,7 +5,7 @@ import { defaultProgress } from '../engine/progression';
 import type { GameSync } from '../engine/saveSync';
 import type { Factory } from '../engine/types';
 import { emptyState, getStorageKey, KEY, loadFrom, normalizeFactory, normalizeGame, setStorageKey, useStore, WORLD_PREF, worldCacheKey, type State } from '../state';
-import { supabase } from './client';
+import { authRedirectError, supabase } from './client';
 import { applyDocs, changedDocs, docsOf, type DocRow } from './docs';
 
 export interface World { id: string; name: string; owner: string; invite_code: string; created_at: string }
@@ -60,6 +60,16 @@ function normalizeRow(r: DocRow): DocRow {
   return r;
 }
 
+/** Plain-English next step for common sign-in failures. */
+function hintFor(msg: string) {
+  if (/email.*(external|provider)|unverified email/i.test(msg)) return ' Your Discord account needs a verified email address (Discord → User Settings → My Account), or sign in with the email link instead.';
+  if (/provider is not enabled|unsupported provider/i.test(msg)) return ' Discord sign-in isn’t switched on in Supabase yet (Authentication → Sign In / Providers → Discord).';
+  if (/exchange|client|secret|invalid_client/i.test(msg)) return ' Check the Discord Client ID and Client Secret saved in Supabase match the Discord app’s OAuth2 page.';
+  if (/expired|invalid/i.test(msg)) return ' The link may have expired; try signing in again.';
+  if (/database/i.test(msg)) return ' Check the database setup script (supabase/schema.sql) ran without errors.';
+  return '';
+}
+
 const nameOf = (u: User | null) => (u ? ((u.user_metadata?.name as string | undefined) ?? u.email?.split('@')[0] ?? 'Pioneer') : '');
 const codeFrom = (s: string) => {
   const t = s.trim();
@@ -72,7 +82,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [authKnown, setAuthKnown] = useState(false);
   const [status, setStatus] = useState<CloudStatus>(supabase ? 'out' : 'off');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(authRedirectError ? `Sign-in didn’t finish: ${authRedirectError}.${hintFor(authRedirectError)}` : null);
   const [worlds, setWorlds] = useState<World[]>([]);
   const [worldId, setWorldId] = useState<string | null>(null);
   const [online, setOnline] = useState<Online[]>([]);
@@ -93,6 +103,11 @@ export function CloudProvider({ children }: { children: ReactNode }) {
   const retry = useRef<ReturnType<typeof setTimeout>>();
 
   // An invite link: remember the code (it survives the sign-in email round trip) and tidy the address bar.
+  // A failed sign-in: open the sign-in page so its message is seen.
+  useEffect(() => {
+    if (supabase && authRedirectError) dispatch({ type: 'view', view: 'account' });
+  }, [dispatch]);
+
   useEffect(() => {
     if (!supabase) return;
     const code = new URLSearchParams(location.search).get('join');
