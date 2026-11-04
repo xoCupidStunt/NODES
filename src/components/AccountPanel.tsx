@@ -61,7 +61,7 @@ export function AccountPanel() {
   return <div className="setup">{c.user ? <SignedIn /> : <SignIn />}</div>;
 }
 
-function SignIn() {
+export function SignIn() {
   const c = useCloud();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);

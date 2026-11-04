@@ -16,6 +16,8 @@ export type CloudStatus = 'off' | 'out' | 'loading' | 'saved' | 'saving' | 'erro
 
 interface CloudCtx {
   enabled: boolean;
+  /** Whether sign-in state is known yet (false briefly at startup). */
+  authReady: boolean;
   user: User | null;
   name: string;
   status: CloudStatus;
@@ -58,6 +60,16 @@ function normalizeRow(r: DocRow): DocRow {
   if (r.key === 'progress') return { key: r.key, data: { ...defaultProgress, ...(r.data as object) } };
   if (r.key === 'game') return { key: r.key, data: normalizeGame(r.data as GameSync) };
   return r;
+}
+
+/** Remove every world copy cached in this browser, and which world was open. */
+function forgetWorldCopies() {
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith(`${KEY}@`)) localStorage.removeItem(k);
+    localStorage.removeItem(WORLD_PREF);
+  } catch {
+    /* storage blocked */
+  }
 }
 
 /** Plain-English next step for common sign-in failures. */
@@ -288,11 +300,11 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       setOnline([]);
       setWorldId(null);
       setStatus('out');
-      // A world was showing (or its cached copy, at startup): back to this device's own plans.
+      // Signed out: drop this browser's copies of the worlds, so the next person here sees nothing of them.
+      forgetWorldCopies();
       if (getStorageKey() !== KEY) {
         setStorageKey(KEY);
-        const own = loadFrom(KEY);
-        dispatch({ type: 'load', state: { ...own, view: stateRef.current.view === 'account' ? 'account' : own.view } });
+        dispatch({ type: 'load', state: loadFrom(KEY) });
       }
       return;
     }
@@ -314,6 +326,8 @@ export function CloudProvider({ children }: { children: ReactNode }) {
         const { data, error: e } = await supabase!.rpc('create_world', { p_name: `${nameOf(userRef.current)}’s world`, p_display: nameOf(userRef.current) });
         fail(e);
         await upload(data as string, loadFrom(KEY));
+        // They live in the account now; don't leave them for whoever uses this browser next.
+        store.set(KEY, null);
         list = await refreshWorlds();
         target = data as string;
       }
@@ -339,6 +353,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
     };
     return {
       enabled: !!supabase,
+      authReady: authKnown,
       user,
       name: nameOf(user),
       status,
@@ -357,7 +372,6 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       },
       signOut: async () => {
         await push();
-        store.set(WORLD_PREF, worldRef.current);
         await ensure().auth.signOut();
       },
       setName: (name) => guard(async () => {
@@ -411,7 +425,7 @@ export function CloudProvider({ children }: { children: ReactNode }) {
       }),
       inviteLink: (w) => `${redirect()}?join=${w.invite_code}`,
     };
-  }, [user, status, error, worlds, worldId, online, pendingJoin, guard, openWorld, push, refreshWorlds, upload]);
+  }, [user, authKnown, status, error, worlds, worldId, online, pendingJoin, guard, openWorld, push, refreshWorlds, upload]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
