@@ -12,7 +12,9 @@ export const authRedirectError: string | null = (() => {
   const read = (s: string) => {
     const p = new URLSearchParams(s);
     const msg = p.get('error_description') ?? p.get('error');
-    return msg ? msg.replace(/\+/g, ' ') : null;
+    if (!msg) return null;
+    // Some messages come back encoded twice ("%3A" for ":").
+    try { return decodeURIComponent(msg.replace(/\+/g, ' ')); } catch { return msg.replace(/\+/g, ' '); }
   };
   const msg = read(location.hash.slice(1)) ?? read(location.search.slice(1));
   if (msg) {
