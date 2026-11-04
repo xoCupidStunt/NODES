@@ -229,3 +229,19 @@ describe('machines vs overclocking', () => {
     expect(spareShards({ progress: { ...progress(2), shards: 10 }, game: null })).toBe(10);
   });
 });
+
+describe('fewest machines', () => {
+  it('overclocks as far as spare shards go, and says why when they run short', async () => {
+    const { game } = await import('../../data/game');
+    const oc = game.schematics.find((s) => s.flags?.includes('BP_UnlockBuildOverclock_C'))!;
+    const pr = (shards: number): Progress => ({ ...progress(8), mam: [oc.id], shards });
+    const f = factory({ target: 'Desc_IronIngot_C', rate: 900, useShards: true, clockCap: 250, priority: 'compact' });
+    const smelters = (shards: number) => buildPlan(f, pr(shards)).groups.find((g) => g.recipe.name === 'Iron Ingot')!;
+    expect(smelters(64).count).toBe(12); // 30 machines' worth at 250 %
+    expect(smelters(25).count).toBe(20); // 150 % is all 25 shards allow
+    const short = buildPlan(f, pr(10));
+    expect(short.groups.find((g) => g.recipe.name === 'Iron Ingot')!.count).toBe(30);
+    expect(short.warnings.join(' ')).toMatch(/needs 20 spare power shards, but only 10 were left/);
+    expect(buildPlan({ ...f, useShards: false }, pr(64)).warnings.join(' ')).toMatch(/“Use power shards” is off/);
+  });
+});

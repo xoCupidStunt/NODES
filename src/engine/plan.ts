@@ -242,10 +242,12 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
   // Hand shards to the groups that save the most machines first.
   const order = Object.entries(solve.recipes).sort((a, b) => b[1] * machines[recipes[b[0]].machine].w - a[1] * machines[recipes[a[0]].machine].w);
   const groups: MachineGroup[] = [];
+  const shardsBefore = new Map<string, number>();
   for (const [rid, exact] of order) {
     if (exact < 1e-3) continue; // solver rounding noise, not a real machine
     const r = recipes[rid];
     const m = machines[r.machine];
+    shardsBefore.set(rid, shardsLeft);
     const { count, clock, maxClock } = chooseCount(exact, recipePower(r), m.exp, cap, shardsLeft, f.priority);
     const full = Math.floor(exact / (maxClock / 100) + 1e-9);
     const lastClock = round((exact - full * (maxClock / 100)) * 100);
@@ -262,6 +264,29 @@ export function buildPlan(f: Factory, progress: Progress): Plan {
     });
   }
   const shardsUsed = overclockOk ? progress.shards - shardsLeft : 0; // machines and miners
+
+  // "Fewest machines" that couldn't overclock: say why, so it doesn't look like the setting did nothing.
+  if ((f.priority ?? 'balanced') === 'compact') {
+    const stuck = groups.filter((g) => g.clock <= 100 + 1e-6 && g.count > Math.ceil(g.exact / 1.5 - 1e-9));
+    const plural = (n: number, w: string) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`}`;
+    if (stuck.length) {
+      if (!u.overclock) warnings.push('Fewest machines can’t overclock yet: unlock “Overclock Production” in the MAM.');
+      else if (!f.useShards) warnings.push('Fewest machines is set, but “Use power shards” is off in Efficiency settings, so every machine stays at 100 %.');
+      else if (progress.shards <= 0) warnings.push('Fewest machines is set, but there are no spare power shards — every shard you own is already in a machine.');
+      else if (f.clockCap <= 100) warnings.push('Fewest machines is set, but Max clock is 100 % in Efficiency settings — raise it (up to 250 %) to overclock.');
+      else {
+        const machineShards = progress.shards - minerShards - shardsLeft;
+        for (const g of stuck.slice(0, 3)) {
+          const n150 = Math.ceil(g.exact / 1.5 - 1e-9);
+          const had = shardsBefore.get(g.id) ?? 0;
+          warnings.push(
+            `Fewest machines: the ${plural(g.count, g.machine.name)} making ${itemName(g.recipe.out[0][0])} stay at 100 % — running ${n150} at 150 % needs ${n150} spare power shards, ` +
+            `but only ${had} were left (${progress.shards} spare: ${minerShards} for miners/water extractors, ${machineShards} for other machines here).`,
+          );
+        }
+      }
+    }
+  }
 
   // ---- depth (raw → product) for layout ----
   const producers: Record<string, MachineGroup[]> = {};
