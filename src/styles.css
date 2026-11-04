@@ -403,3 +403,8 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 /* Keep page headers clear of the account button */
 .top { padding-right: 68px; }
 .main > .content > h1:first-child { padding-right: 52px; }
+
+/* Save helper install steps */
+.helper-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.helper-cmd { align-items: center; flex-wrap: wrap; }
+.helper-cmd code { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; user-select: all; overflow-wrap: anywhere; }

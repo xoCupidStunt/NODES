@@ -4,6 +4,8 @@ import { useSaveSync } from '../sync/SaveSyncProvider';
 
 const SAVE_PATH = String.raw`%LOCALAPPDATA%\FactoryGame\Saved\SaveGames`;
 const HELPER_FOLDER = 'N.O.D.E.S Saves';
+/** One line to paste into PowerShell: nothing to download, so no blocked-file or right-click-menu trouble. */
+const HELPER_CMD = `irm ${typeof location === 'undefined' ? 'https://node-system.vercel.app' : location.origin}/nodes-save-helper.ps1 | iex`;
 
 export function ago(ms: number | null, now = Date.now()) {
   if (!ms) return 'unknown';
@@ -34,6 +36,17 @@ export function SaveSyncCard() {
   const now = useClock();
   const g = state.game;
 
+  const [copiedCmd, setCopiedCmd] = useState(false);
+  const copyCmd = async () => {
+    try {
+      await navigator.clipboard.writeText(HELPER_CMD);
+      setCopiedCmd(true);
+      window.setTimeout(() => setCopiedCmd(false), 1500);
+    } catch {
+      /* clipboard blocked: the text can be selected by hand */
+    }
+  };
+
   const copyPath = async () => {
     try {
       await navigator.clipboard.writeText(SAVE_PATH);
@@ -59,11 +72,18 @@ export function SaveSyncCard() {
 
       {sync.folder === 'none' && (
         <>
-          <p className="muted small-text">Connect a save folder once. N.O.D.E.S then reads your newest save every time the game saves, and fills in tier, milestones, MAM research, alternates, power shards and somersloops. Nothing is uploaded — the save is read in this browser.</p>
+          <p className="muted small-text">Connect a save folder once. N.O.D.E.S then reads your newest save every time the game saves, and fills in tier, milestones, MAM research, alternates, power shards and somersloops. The save file stays on your PC — it’s read in this browser.</p>
           <ol className="sync-steps small-text">
             <li>
-              <b>Install the save helper (once).</b> Chrome won’t open the game’s own save folder (it’s inside AppData), so this small script copies new saves to <code>Documents\{HELPER_FOLDER}</code>.{' '}
-              <a href="/nodes-save-helper.ps1" download>Download nodes-save-helper.ps1</a>, then right-click it → <b>Run with PowerShell</b>. It starts with Windows and runs in the background.
+              <b>Install the save helper (once, Windows).</b> Chrome and Edge won’t open the game’s own save folder (it’s inside AppData), so this small script copies new saves to <code>Documents\{HELPER_FOLDER}</code>. It starts with Windows and runs in the background.
+              <div className="helper-steps">
+                <div>Press <b>Start</b>, type <b>PowerShell</b>, open it, paste this line and press <b>Enter</b>:</div>
+                <div className="row gap helper-cmd">
+                  <code>{HELPER_CMD}</code>
+                  <button className="small" onClick={copyCmd}>{copiedCmd ? 'Copied' : 'Copy'}</button>
+                </div>
+                <div className="muted">Or <a href="/nodes-save-helper.ps1" download>download nodes-save-helper.ps1</a>, then right-click it → <b>Run with PowerShell</b>.</div>
+              </div>
             </li>
             <li>
               <button className="primary" onClick={sync.connect}>Connect save folder</button>{' '}

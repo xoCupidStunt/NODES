@@ -5,8 +5,11 @@
 #   Documents\N.O.D.E.S Saves
 # whenever the game writes one, so N.O.D.E.S can sync from that folder instead.
 #
-# Run it once (right-click > Run with PowerShell). It installs itself to start when
-# you sign in to Windows and keeps running quietly in the background.
+# Install it once, either way:
+#   - paste this into PowerShell:  irm https://node-system.vercel.app/nodes-save-helper.ps1 | iex
+#   - or download it, right-click > Run with PowerShell
+# It installs itself to start when you sign in to Windows and keeps running quietly
+# in the background.
 #
 #   -Uninstall   stop it and remove it from startup
 #   -Once        copy new saves one time and exit
@@ -20,6 +23,15 @@ $Target = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'N.O.D.E.S Sav
 $Home_ = Join-Path $env:LOCALAPPDATA 'N.O.D.E.S'
 $Installed = Join-Path $Home_ 'nodes-save-helper.ps1'
 $Shortcut = Join-Path ([Environment]::GetFolderPath('Startup')) 'N.O.D.E.S save helper.lnk'
+$Url = 'https://node-system.vercel.app/nodes-save-helper.ps1'
+
+# Errors stay on screen (the window would otherwise close before they can be read).
+function Show-Problem($msg) {
+  Write-Host ''
+  Write-Host $msg -ForegroundColor Yellow
+  Write-Host ''
+  Read-Host 'Press Enter to close'
+}
 
 function Stop-Helper {
   Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
@@ -81,25 +93,39 @@ if ($Watch) {
 
 # No switch: install, start it now, and explain.
 if (-not (Test-Path $Source)) {
-  Write-Host "Couldn't find Satisfactory saves in $Source" -ForegroundColor Yellow
-  Write-Host 'Start the game and save once, then run this again.'
-  Read-Host 'Press Enter to close'
+  $gamePass = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Packages') -Directory -Filter '*CoffeeStain*' -ErrorAction SilentlyContinue
+  if ($gamePass) {
+    Show-Problem ("This looks like the Xbox / Game Pass version of Satisfactory. It keeps saves in a different place and format that N.O.D.E.S can't read yet.`n" +
+      "Sync works with the Steam and Epic versions.")
+  } else {
+    Show-Problem "Couldn't find Satisfactory saves in $Source`nStart the game and save once, then run this again."
+  }
   return
 }
-New-Item -ItemType Directory -Path $Home_ -Force | Out-Null
-if ($PSCommandPath -ne $Installed) { Copy-Item -LiteralPath $PSCommandPath -Destination $Installed -Force }
+try {
+  New-Item -ItemType Directory -Path $Home_ -Force | Out-Null
+  if ($PSCommandPath -and (Test-Path -LiteralPath $PSCommandPath)) {
+    if ($PSCommandPath -ne $Installed) { Copy-Item -LiteralPath $PSCommandPath -Destination $Installed -Force }
+  } else {
+    # Pasted into PowerShell (irm ... | iex): fetch a copy to run at startup.
+    Invoke-WebRequest -Uri $Url -OutFile $Installed -UseBasicParsing
+  }
 
-$shell = New-Object -ComObject WScript.Shell
-$lnk = $shell.CreateShortcut($Shortcut)
-$lnk.TargetPath = Join-Path $PSHOME 'powershell.exe'
-$lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Installed`" -Watch"
-$lnk.WindowStyle = 7
-$lnk.Description = 'Copies Satisfactory saves to Documents\N.O.D.E.S Saves for N.O.D.E.S'
-$lnk.Save()
+  $shell = New-Object -ComObject WScript.Shell
+  $lnk = $shell.CreateShortcut($Shortcut)
+  $lnk.TargetPath = Join-Path $PSHOME 'powershell.exe'
+  $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Installed`" -Watch"
+  $lnk.WindowStyle = 7
+  $lnk.Description = 'Copies Satisfactory saves to Documents\N.O.D.E.S Saves for N.O.D.E.S'
+  $lnk.Save()
 
-$n = Copy-NewSaves
-Stop-Helper
-Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Installed`" -Watch" -WindowStyle Hidden
+  $n = Copy-NewSaves
+  Stop-Helper
+  Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$Installed`" -Watch" -WindowStyle Hidden
+} catch {
+  Show-Problem "The save helper couldn't install: $($_.Exception.Message)`nSend this message to whoever shared N.O.D.E.S with you."
+  return
+}
 
 Write-Host ''
 Write-Host 'N.O.D.E.S save helper is running.' -ForegroundColor Green
@@ -107,7 +133,8 @@ Write-Host "Copied $n save(s) to:"
 Write-Host "  $Target" -ForegroundColor Cyan
 Write-Host ''
 Write-Host 'It starts with Windows and copies each new save within a few seconds.'
-Write-Host 'Now open N.O.D.E.S > Progress > Connect save folder, and pick that folder.'
+Write-Host 'Now open N.O.D.E.S in Chrome or Edge > account icon (top right) > Your Account >'
+Write-Host 'Connect save folder, and pick that folder.'
 Write-Host ''
 Write-Host 'To remove it later:  powershell -ExecutionPolicy Bypass -File' "`"$Installed`"" '-Uninstall'
 Read-Host 'Press Enter to close'
