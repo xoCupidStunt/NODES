@@ -353,7 +353,7 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .has-tip .muted { text-decoration: underline dotted; text-underline-offset: 2px; }
 
 /* Account, worlds and sharing */
-.cloud-box { padding: 8px 10px; margin: 4px 0; border-radius: 8px; border: 1px solid var(--line); }
+.cloud-box { padding: 8px 10px; margin: 12px 12px 0; border-radius: 8px; border: 1px solid var(--line); }
 .cloud-box.on { border-color: var(--accent); }
 .cloud-line { align-items: center; }
 .cloud-line select { flex: 1; min-width: 0; }
@@ -383,3 +383,10 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .signin-or::before, .signin-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .account-who { align-items: center; }
 .avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; }
+
+/* Fold-away factory list in the sidebar */
+.list-toggle { background: transparent; border: 0; padding: 2px 4px 2px 0; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.list-toggle:hover { color: var(--text); }
+.list-toggle .caret { width: 10px; display: inline-block; }
+.list-toggle .count { background: var(--panel2); border-radius: 8px; padding: 0 6px; font-size: 10px; }
+.factory-list[hidden] { display: none; }

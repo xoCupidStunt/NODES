@@ -28,6 +28,12 @@ export default function App() {
     setSideOpen(open);
     try { localStorage.setItem('nodes-sidebar', open ? 'open' : 'closed'); } catch { /* storage blocked: just don't remember */ }
   };
+  // Factory list can be folded away; remembered on this device.
+  const [listOpen, setListOpen] = useState(() => { try { return localStorage.getItem('nodes-factories') !== 'closed'; } catch { return true; } });
+  const toggleList = () => {
+    setListOpen(!listOpen);
+    try { localStorage.setItem('nodes-factories', listOpen ? 'closed' : 'open'); } catch { /* storage blocked */ }
+  };
   const newInGame = useNewGameFactories();
   // Combine mode: tick factories in the list, pick which one keeps its name and settings.
   const [combining, setCombining] = useState(false);
@@ -72,15 +78,17 @@ export default function App() {
           🗺 World map <span className="muted">All factories{state.game ? ' · planned and in game' : ''}</span>
         </button>
         <div className="side-head">
-          <span>Factories</span>
+          <button className="list-toggle" onClick={toggleList} aria-expanded={listOpen} title={listOpen ? 'Hide factories' : 'Show factories'}>
+            <span className="caret">{listOpen ? '▾' : '▸'}</span> Factories <span className="count">{state.factories.length}</span>
+          </button>
           <div className="row gap">
-            {state.factories.length > 1 && (
+            {listOpen && state.factories.length > 1 && (
               <button className={`small ${combining ? 'on' : ''}`} onClick={() => (combining ? stopCombining() : setCombining(true))} title="Combine factories">{combining ? 'Cancel' : 'Combine'}</button>
             )}
             {!combining && <button className="small" onClick={() => dispatch({ type: 'add', factory: newFactory(state.factories.length + 1) })}>+ New</button>}
           </div>
         </div>
-        {combining && (
+        {listOpen && combining && (
           <div className="combine-bar">
             <div className="small-text">{pickedNow.length < 2 ? 'Tick the factories to combine.' : <>Combine {pickedNow.length} into:</>}</div>
             {pickedNow.length >= 2 && (
@@ -94,7 +102,7 @@ export default function App() {
         {newInGame > 0 && (
           <button className="small ingame-hint" onClick={showGameFactories}>⇩ {newInGame} factor{newInGame > 1 ? 'ies' : 'y'} found in your game</button>
         )}
-        <div className="factory-list">
+        <div className="factory-list" hidden={!listOpen}>
           {state.factories.length === 0 && <p className="muted pad">No factories yet. Click “+ New” to plan one.</p>}
           {state.factories.map((f) => {
             const p = plans[f.id];

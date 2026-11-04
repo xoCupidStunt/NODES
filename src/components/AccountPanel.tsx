@@ -66,7 +66,7 @@ export function AccountPanel() {
       </div>
     );
   }
-  return <div className="setup">{c.user ? <SignedIn /> : <SignIn />}</div>;
+  return <div className="content"><div className="setup">{c.user ? <SignedIn /> : <SignIn />}</div></div>;
 }
 
 export function SignIn() {
