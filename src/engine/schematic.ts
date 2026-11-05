@@ -130,38 +130,223 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
 
   // ---- rows: split each machine group into chunks of maxPerRow ----
 type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
-  /** One input item's strip above a row: a manifold lane, or (balanced) a splitter tree. y values from the row top. */
-  type Band = { tree: Tree | null; top: number; h: number; feedY: number; rate: number };
-  type RowSpec = Omit<Row, 'x' | 'y' | 'w' | 'h'> & { pitch: number; bodyH: number; inH: number; outH: number; groupId: string; frac: number; bands: Band[] };
+  /**
+   * A direct line: one block of producer machines (merged) feeding one block of consumer machines (split evenly),
+   * instead of going through the bus. slot = its place among the lines leaving / entering the same row strip.
+   */
+  type Line = {
+    id: number; item: string; rate: number;
+    from: { rowId: string; start: number; n: number; slot: number };
+    to: { rowId: string; start: number; n: number; slot: number; tree: Tree | null };
+  };
+  /** One input item's strip above a row: a manifold lane, a splitter tree, or direct lines. y values from the row top. */
+  type Band = { tree: Tree | null; top: number; h: number; feedY: number; rate: number; lines?: Line[] };
+  /** One output item's strip below a row: a line back to the bus, or direct lines. */
+  type OutBand = { top: number; h: number; lines?: Line[] };
+  type RowSpec = Omit<Row, 'x' | 'y' | 'w' | 'h'> & { pitch: number; bodyH: number; inH: number; outH: number; groupId: string; frac: number; bands: Band[]; outBands: OutBand[] };
+  /** What line-finding needs to know about a row (or, before rows exist, a whole machine group). */
+  type LineRow = { id: string; groupId: string; count: number; recipe: Recipe; clock: number; inItems: string[]; outItems: string[] };
+  const perMin = (sp: LineRow, side: 'in' | 'out', item: string) => {
+    const list = side === 'in' ? sp.recipe.in : sp.recipe.out;
+    const j = list.findIndex(([i]) => i === item);
+    return ((list[j][1] * 60) / sp.recipe.time) * (sp.clock / 100);
+  };
+  const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+  // ---- balanced: link each machine type straight to the next ----
+  // For a part made by one machine type and used by others in the factory, split the makers and the users into the
+  // most identical lines that fit evenly (both counts divide by it, and no block crosses a row): each line merges
+  // its own few makers and splits evenly to its own few users. 10 Smelters → 6 Foundries = 2 lines of 5 → 3;
+  // 6 Foundries → 12 Constructors = 6 lines of 1 → 2. Anything that doesn't fit exactly goes through the bus.
+  const findLines = (rowsIn: LineRow[]) => {
+    const found: Line[] = [];
+    const items = new Set<string>();
+    const fromOutside = new Set(plan.inputs.map((x) => x.item));
+    const leaves = new Set([target, ...plan.also.map(([i]) => i), ...plan.surplus.map(([i]) => i)]);
+    const oneRow = (list: { rowId: string }[], size: number) => {
+      for (let i = 0; i < list.length; i += size) if (list[i].rowId !== list[i + size - 1].rowId) return false;
+      return true;
+    };
+    for (const item of new Set(rowsIn.flatMap((sp) => sp.outItems))) {
+      if (isFluid(item) || isPower(item) || fromOutside.has(item) || leaves.has(item)) continue;
+      const makersRows = rowsIn.filter((sp) => sp.outItems.includes(item));
+      const usersRows = rowsIn.filter((sp) => sp.inItems.includes(item));
+      if (!usersRows.length || new Set(makersRows.map((sp) => sp.groupId)).size !== 1) continue;
+      const each = perMin(makersRows[0], 'out', item);
+      const makerMs = makersRows.flatMap((sp) => Array.from({ length: sp.count }, (_, k) => ({ rowId: sp.id, k })));
+      const made: Line[] = [];
+      let used = 0;
+      let ok = true;
+      for (const gid of new Set(usersRows.map((sp) => sp.groupId))) {
+        const rows = usersRows.filter((sp) => sp.groupId === gid);
+        const userMs = rows.flatMap((sp) => Array.from({ length: sp.count }, (_, k) => ({ rowId: sp.id, k })));
+        const needMakers = (userMs.length * perMin(rows[0], 'in', item)) / each;
+        const pk = Math.round(needMakers);
+        if (pk < 1 || Math.abs(needMakers - pk) > 1e-4 || used + pk > makerMs.length) { ok = false; break; }
+        const mine = makerMs.slice(used, used + pk);
+        used += pk;
+        let m = 0;
+        for (let d = gcd(pk, userMs.length); d >= 1; d--) {
+          if (pk % d || userMs.length % d) continue;
+          if (oneRow(mine, pk / d) && oneRow(userMs, userMs.length / d)) { m = d; break; }
+        }
+        if (!m) { ok = false; break; }
+        const pb = pk / m;
+        const cb = userMs.length / m;
+        for (let l = 0; l < m; l++) {
+          const p0 = mine[l * pb];
+          const c0 = userMs[l * cb];
+          made.push({ id: 0, item, rate: pb * each, from: { rowId: p0.rowId, start: p0.k, n: pb, slot: 0 }, to: { rowId: c0.rowId, start: c0.k, n: cb, slot: 0, tree: null } });
+        }
+      }
+      if (!ok || used !== makerMs.length) continue;
+      items.add(item);
+      found.push(...made);
+    }
+    return { found, items };
+  };
+
+  // Row sizes. When balancing, each machine type's rows hold whole line blocks (rows of 9 for blocks of 3), so no
+  // line has to cross from one row to the next; and a type that feeds another is cut to match the rows it feeds
+  // (9 Smelters for each row of 9 Constructors), so each of its rows can sit right above the row it supplies.
+  // Worked out on whole groups first, users before makers.
+  const rowCounts = new Map<string, number[]>();
+  const maxRow = Math.max(1, opt.maxPerRow);
+  const evenRows = (count: number, unit: number) => {
+    const per = unit <= maxRow ? Math.floor(maxRow / unit) * unit : maxRow;
+    const out: number[] = [];
+    for (let left = count; left > 0; left -= per) out.push(Math.min(per, left));
+    return out;
+  };
+  if (balanced) {
+    const ideal = findLines(plan.groups.map((g) => ({ id: g.id, groupId: g.id, count: g.count, recipe: g.recipe, clock: g.clock, inItems: g.recipe.in.map(([i]) => i), outItems: g.recipe.out.map(([i]) => i) })));
+    const lcm = (x: number, y: number) => (x / gcd(x, y)) * y;
+    const unit = new Map<string, number>();
+    for (const l of ideal.found) {
+      unit.set(l.from.rowId, lcm(unit.get(l.from.rowId) ?? 1, l.from.n));
+      unit.set(l.to.rowId, lcm(unit.get(l.to.rowId) ?? 1, l.to.n));
+    }
+    for (const g of [...plan.groups].reverse()) {
+      const u2 = unit.get(g.id) ?? 1;
+      const outs = ideal.found.filter((l) => l.from.rowId === g.id);
+      // The part this type sends down the most lines decides how its rows are cut.
+      const byItem = new Map<string, Line[]>();
+      for (const l of outs) byItem.set(l.item, [...(byItem.get(l.item) ?? []), l]);
+      const main = [...byItem.values()].sort((x, y) => y.length - x.length)[0];
+      let rowsOut: number[] | null = null;
+      if (main) {
+        const segs: number[] = [];
+        for (const gid of [...new Set(main.map((l) => l.to.rowId))]) {
+          const first = main.find((l) => l.to.rowId === gid)!;
+          for (const rc of rowCounts.get(gid) ?? [plan.groups.find((x) => x.id === gid)!.count]) {
+            if (rc % first.to.n) { segs.length = 0; break; }
+            segs.push((rc / first.to.n) * first.from.n);
+          }
+        }
+        if (segs.length && segs.reduce((x, y) => x + y, 0) === g.count) {
+          const pb = main[0].from.n;
+          const piece = Math.max(u2, Math.floor(maxRow / u2) * u2);
+          const packed: number[] = [];
+          let cur = 0;
+          for (let seg of segs) {
+            while (seg > maxRow) { if (cur) { packed.push(cur); cur = 0; } packed.push(piece); seg -= piece; }
+            if (cur + seg > maxRow) { packed.push(cur); cur = 0; }
+            cur += seg;
+          }
+          if (cur) packed.push(cur);
+          if (packed.every((n) => n % u2 === 0 && n % pb === 0)) rowsOut = packed;
+        }
+      }
+      rowCounts.set(g.id, rowsOut ?? evenRows(g.count, u2));
+    }
+  }
+
   const specs: RowSpec[] = [];
   for (const g of plan.groups) {
-    const per = Math.max(1, opt.maxPerRow);
-    const chunks = Math.ceil(g.count / per);
-    for (let c = 0; c < chunks; c++) {
-      const count = Math.min(per, g.count - c * per);
-      const inItems = g.recipe.in.map(([i]) => i);
-      const outItems = g.recipe.out.map(([i]) => i);
-      const raw = inItems.map((item, j) => {
-        const rate = ((g.recipe.in[j][1] * 60) / g.recipe.time) * (g.clock / 100) * count;
-        if (!balanced || isFluid(item) || count < 2) return { tree: null, h: STRIP_LANE, rate };
-        const tg = evenBalancer(count, rate);
-        const lay = layoutBalancer(tg);
-        return { tree: { g: tg, lay }, h: 2 + (lay.rows - 1) * LEVEL + 1, rate };
-      });
-      const inH = toF(Math.max(STRIP_LANE, raw.reduce((a, b) => a + b.h, 0)));
-      // The first input sits next to the machines; the others stack above it.
-      let edge = inH;
-      const bands: Band[] = raw.map((b) => { edge -= b.h; return { ...b, top: edge, feedY: b.tree ? edge + 1.5 : edge + b.h - 2 }; });
+    const counts = rowCounts.get(g.id) ?? evenRows(g.count, 1);
+    for (let c = 0; c < counts.length; c++) {
+      const count = counts[c];
       specs.push({
         id: `${g.id}#${c}`, groupId: g.id, recipe: g.recipe, machine: g.machine, count, clock: g.clock,
-        inItems, outItems,
+        inItems: g.recipe.in.map(([i]) => i), outItems: g.recipe.out.map(([i]) => i),
         pitch: snap(g.machine.w + opt.machineGap, opt.snap),
         bodyH: snap(g.machine.l, opt.snap),
-        inH, bands,
-        outH: toF(Math.max(1, outItems.length) * STRIP_LANE),
+        inH: 0, outH: 0, bands: [], outBands: [],
         frac: count / g.count,
       });
     }
+  }
+
+  const lines: Line[] = [];
+  const direct = new Set<string>();
+  if (balanced) {
+    const real = findLines(specs);
+    lines.push(...real.found);
+    for (const i of real.items) direct.add(i);
+    // Chains: link each row to the row it sends the most lines to (each row one link in, one out, no loops), then
+    // lay the rows out chain by chain, so most lines drop straight down into the next row.
+    const counts = new Map<string, Map<string, number>>();
+    for (const l of real.found) {
+      const m = counts.get(l.from.rowId) ?? new Map<string, number>();
+      m.set(l.to.rowId, (m.get(l.to.rowId) ?? 0) + 1);
+      counts.set(l.from.rowId, m);
+    }
+    const pairs = [...counts.entries()].flatMap(([f, m]) => [...m.entries()].map(([t, n]) => ({ f, t, n }))).sort((x, y) => y.n - x.n);
+    const next = new Map<string, string>();
+    const prev = new Map<string, string>();
+    const head = (id: string) => { let h = id; while (prev.has(h)) h = prev.get(h)!; return h; };
+    for (const { f, t } of pairs) {
+      if (f === t || next.has(f) || prev.has(t) || head(f) === t) continue;
+      next.set(f, t);
+      prev.set(t, f);
+    }
+    const byId = new Map(specs.map((sp) => [sp.id, sp]));
+    const ordered: RowSpec[] = [];
+    const seen = new Set<string>();
+    for (const sp of specs) {
+      for (let h: string | undefined = head(sp.id); h && !seen.has(h); h = next.get(h)) { seen.add(h); ordered.push(byId.get(h)!); }
+    }
+    specs.splice(0, specs.length, ...ordered);
+    lines.forEach((l, i) => {
+      l.id = i;
+      if (l.to.n > 1) { const g = evenBalancer(l.to.n, l.rate); l.to.tree = { g, lay: layoutBalancer(g) }; }
+    });
+    const slotUp = (key: (l: Line) => string, start: (l: Line) => number, set: (l: Line, k: number) => void) => {
+      const by = new Map<string, Line[]>();
+      for (const l of lines) by.set(key(l), [...(by.get(key(l)) ?? []), l]);
+      for (const list of by.values()) list.sort((a, b) => start(a) - start(b)).forEach((l, k) => set(l, k));
+    };
+    slotUp((l) => `${l.item}|${l.from.rowId}`, (l) => l.from.start, (l, k) => { l.from.slot = k; });
+    slotUp((l) => `${l.item}|${l.to.rowId}`, (l) => l.to.start, (l, k) => { l.to.slot = k; });
+  }
+
+  // ---- each row's belt strips ----
+  const LINE_GAP = 1.5;
+  for (const sp of specs) {
+    const raw = sp.inItems.map((item, j) => {
+      const rate = ((sp.recipe.in[j][1] * 60) / sp.recipe.time) * (sp.clock / 100) * sp.count;
+      if (direct.has(item)) {
+        const ls = lines.filter((l) => l.item === item && l.to.rowId === sp.id).sort((a, b) => a.to.slot - b.to.slot);
+        const depth = Math.max(0, ...ls.map((l) => (l.to.tree ? l.to.tree.lay.rows - 1 : 0)));
+        return { tree: null, lines: ls, h: 1 + ls.length * LINE_GAP + 0.5 + depth * LEVEL + 1, rate };
+      }
+      if (!balanced || isFluid(item) || sp.count < 2) return { tree: null, h: STRIP_LANE, rate };
+      const tg = evenBalancer(sp.count, rate);
+      const lay = layoutBalancer(tg);
+      return { tree: { g: tg, lay }, h: 2 + (lay.rows - 1) * LEVEL + 1, rate };
+    });
+    sp.inH = toF(Math.max(STRIP_LANE, raw.reduce((a, b) => a + b.h, 0)));
+    // The first input sits next to the machines; the others stack above it.
+    let edge = sp.inH;
+    sp.bands = raw.map((b) => { edge -= b.h; return { ...b, top: edge, feedY: b.tree ? edge + 1.5 : edge + b.h - 2 }; });
+    const outRaw = sp.outItems.map((item) => {
+      if (!direct.has(item)) return { h: STRIP_LANE };
+      const ls = lines.filter((l) => l.item === item && l.from.rowId === sp.id).sort((a, b) => a.from.slot - b.from.slot);
+      return { lines: ls, h: 1.5 + ls.length * LINE_GAP + 0.5 };
+    });
+    sp.outH = toF(Math.max(STRIP_LANE, outRaw.reduce((a, b) => a + b.h, 0)));
+    let down = 0;
+    sp.outBands = outRaw.map((b) => { const band = { ...b, top: down }; down += b.h; return band; });
   }
 
   // Rows of one recipe are numbered when it needs several.
@@ -172,7 +357,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
 
   // ---- bus lanes: one per item that moves between rows or crosses the factory edge ----
   const laneItems: string[] = [];
-  const addLane = (i: string) => { if (!laneItems.includes(i) && !isPower(i)) laneItems.push(i); };
+  const addLane = (i: string) => { if (!laneItems.includes(i) && !isPower(i) && !direct.has(i)) laneItems.push(i); };
   for (const [i] of plan.inputs.map((x) => [x.item])) addLane(i);
   for (const s of specs) { s.inItems.forEach(addLane); s.outItems.forEach(addLane); }
   const border = opt.border * F;
@@ -227,7 +412,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
     let ry = top;
     for (const sp of rowsSpec) {
       sp.inItems.forEach((item, j) => {
-        if (!isFluid(item)) (users[item] ??= []).push({ name: rowName(sp), need: sp.bands[j].rate, y: ry + sp.bands[j].feedY, rowId: sp.id, kind: 'row' });
+        if (!isFluid(item) && !direct.has(item)) (users[item] ??= []).push({ name: rowName(sp), need: sp.bands[j].rate, y: ry + sp.bands[j].feedY, rowId: sp.id, kind: 'row' });
       });
       ry += rowH(sp) + opt.rowGap * F;
     }
@@ -270,8 +455,18 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
     }
     return trees;
   });
-  const gapW = Math.max(0, ...busTrees.map((ts) => ts.reduce((a, t) => Math.max(a, t.dx + t.w), 0)));
+  const treesW = Math.max(0, ...busTrees.map((ts) => ts.reduce((a, t) => Math.max(a, t.dx + t.w), 0)));
+  const trackX0 = busX + busW + 1 + treesW + (treesW ? 1 : 0);
+  // A line into the very next row on the same floor drops straight down; the others get a track in the gap.
+  const nextOnFloor = new Map<string, string>();
+  for (const rs2 of floorSpecs) rs2.forEach((sp, k) => { if (rs2[k + 1]) nextOnFloor.set(sp.id, rs2[k + 1].id); });
+  const adjacent = (l: Line) => nextOnFloor.get(l.from.rowId) === l.to.rowId;
+  const trackOf = new Map<number, number>();
+  for (const l of lines) if (!adjacent(l)) trackOf.set(l.id, trackOf.size);
+  const gapW = treesW + (trackOf.size ? trackOf.size * TRACK + 2 : 0);
   const rowX = busX + busW + Math.max(F, toF(gapW + 2));
+  const floorOf = new Map<string, number>();
+  floorSpecs.forEach((rs2, fi) => rs2.forEach((sp) => floorOf.set(sp.id, fi)));
   const width = toF(rowX + maxRowLen + F + border);
 
   const flowRate = (item: string) => {
@@ -416,6 +611,9 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
     const laneSpan: Record<string, [number, number]> = {};
     /** Balanced: where each row's input belt starts (just past the bus gap); the lane or a bus split feeds it. */
     const entries: { item: string; rowId: string; pt: Pt }[] = [];
+    /** Where each direct line leaves its makers' row and reaches its users' row on this floor. */
+    const lineOut = new Map<number, Pt>();
+    const lineIn = new Map<number, Pt>();
     const touch = (item: string, y: number) => {
       const s = laneSpan[item];
       laneSpan[item] = s ? [Math.min(s[0], y), Math.max(s[1], y)] : [y, y];
@@ -445,6 +643,36 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         const t = transportName(item, rate);
         const rowMs = ms.slice(-s.count);
         const lastX = rowMs[rowMs.length - 1].inPorts[j].x;
+        if (band.lines) {
+          // Direct lines: each comes in on its own lane (the leftmost block's lowest, so none cross) and drops into
+          // an even splitter tree over just its block of machines.
+          const k = band.lines.length;
+          const rootY = y + band.top + 1 + k * LINE_GAP + 0.5;
+          band.lines.forEach((l, slot) => {
+            const laneY = y + band.top + 1 + (k - 1 - slot) * LINE_GAP;
+            const block = rowMs.slice(l.to.start, l.to.start + l.to.n);
+            const drop = adjacent(l) ? lineOut.get(l.id) : undefined;
+            const entry = drop ? { x: drop.x, y: laneY } : { x: rowX - 1, y: laneY };
+            if (drop) belts.push({ item, fluid: false, points: [drop, entry], rate: l.rate, hidden: hiddenManifold, kind: 'tree', ...transportName(item, l.rate) });
+            else lineIn.set(l.id, entry);
+            const lt = transportName(item, l.rate);
+            const kind = slot === 0 ? 'manifold' : 'tree';
+            const labelAt = { x: lastX, y: laneY };
+            if (l.to.tree) {
+              const x0 = block[0].inPorts[j].x;
+              const map = (c: number, rr: number) => ({ x: x0 + c * s.pitch, y: rootY + rr * LEVEL });
+              const top0 = map(l.to.tree.lay.col.get(0)!, 0);
+              belts.push({ item, fluid: false, points: [entry, { x: top0.x, y: laneY }, top0], rate: l.rate, hidden: hiddenManifold, kind, labelAt, ...lt });
+              drawTree(l.to.tree, map, (d) => block[d].inPorts[j], item, belts, markers);
+            } else {
+              const p = block[0].inPorts[j];
+              belts.push({ item, fluid: false, points: [entry, { x: p.x, y: laneY }, p], rate: l.rate, hidden: hiddenManifold, kind, labelAt, ...lt });
+            }
+            if (lt.lanes > 1) beltWarnings.add(`Each ${itemName(item)} line into ${rowName(s)} carries ${r1(l.rate)}/min, more than one ${lt.tier} — unlock a faster belt or lower "Machines per row".`);
+          });
+          if (opt.logistics === 'underfloor') for (const m of rowMs) markers.push({ x: m.inPorts[j].x, y: m.inPorts[j].y - 1, kind: 'hole', item });
+          return;
+        }
         if (!balanced || isFluid(item)) {
           belts.push({ item, fluid: isFluid(item), points: [{ x: laneX[item], y: ly }, { x: lastX, y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', ...t });
           touch(item, ly);
@@ -478,25 +706,65 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
       // Output manifolds back to the bus.
       s.outItems.forEach((item, j) => {
         if (isPower(item)) return; // generators feed the grid through power lines, not belts
-        const ly = outY + 2 + j * STRIP_LANE;
+        const band = s.outBands[j];
         const rate = perMachine(r.out[j][1]) * s.count;
         const t = transportName(item, rate);
         const row = ms.slice(-s.count);
         const lastX = row[row.length - 1].outPorts[j].x;
-        // Balanced: just enough mergers. From the far end, the first merger takes 3 machines (odd rows) or 2, then
+        // Balanced: just enough mergers. From the far end, the first merger takes 3 machines (odd counts) or 2, then
         // each next one takes the line plus 2 more. A single machine needs none.
-        const grouped = balanced && !isFluid(item);
-        const groups: PlacedMachine[][] = [];
-        if (grouped) {
-          const rev = [...row].reverse();
+        const mergeGroups = (list: PlacedMachine[]) => {
+          const out: PlacedMachine[][] = [];
+          const rev = [...list].reverse();
           let k = 0;
-          if (rev.length > 1 && rev.length % 2 === 1) { groups.push(rev.slice(0, 3)); k = 3; }
-          for (; k < rev.length; k += 2) groups.push(rev.slice(k, k + 2));
-        }
+          if (rev.length > 1 && rev.length % 2 === 1) { out.push(rev.slice(0, 3)); k = 3; }
+          for (; k < rev.length; k += 2) out.push(rev.slice(k, k + 2));
+          return out;
+        };
         const mergerX = (grp: PlacedMachine[]) => {
           const xs = grp.map((m) => m.outPorts[j].x);
           return grp.length === 1 ? xs[0] : (Math.min(...xs) + Math.max(...xs)) / 2;
         };
+        const each = perMachine(r.out[j][1]);
+        const feedTo = (pts: Pt[], m: PlacedMachine) => {
+          belts.push({ item, fluid: isFluid(item), points: pts, rate: each, hidden: hiddenManifold, kind: 'feed', ...transportName(item, each) });
+          if (opt.logistics === 'underfloor') markers.push({ x: m.outPorts[j].x, y: m.outPorts[j].y + 1, kind: 'hole', item });
+        };
+        const mergeOnto = (list: PlacedMachine[], ly: number) => {
+          const gs = mergeGroups(list);
+          for (const grp of gs) {
+            const mx = mergerX(grp);
+            if (list.length > 1) markers.push({ x: mx, y: ly, kind: 'merger', item });
+            for (const m of grp) {
+              const p = m.outPorts[j];
+              feedTo(Math.abs(p.x - mx) < 0.01 ? [{ x: p.x, y: p.y }, { x: p.x, y: ly }] : [{ x: p.x, y: p.y }, { x: p.x, y: ly - 1.5 }, { x: mx, y: ly - 1.5 }, { x: mx, y: ly }], m);
+            }
+          }
+          return { start: mergerX(gs[0]), end: mergerX(gs[gs.length - 1]) };
+        };
+        if (band.lines) {
+          // Direct lines: each block of makers merges onto its own line (leftmost block nearest the machines, so
+          // none cross). Into the very next row it drops straight down from its last merger; otherwise it leaves
+          // for the gap, where it runs to the machines it feeds.
+          band.lines.forEach((l, slot) => {
+            const ly = outY + band.top + 1.5 + slot * LINE_GAP;
+            const block = row.slice(l.from.start, l.from.start + l.from.n);
+            const { start, end } = mergeOnto(block, ly);
+            const lt = transportName(item, l.rate);
+            const kind = slot === 0 ? 'manifold' : 'tree';
+            if (adjacent(l)) {
+              if (Math.abs(start - end) > 0.01) belts.push({ item, fluid: false, points: [{ x: start, y: ly }, { x: end, y: ly }], rate: l.rate, hidden: hiddenManifold, kind, labelAt: { x: lastX, y: ly }, ...lt });
+              lineOut.set(l.id, { x: end, y: ly });
+            } else {
+              belts.push({ item, fluid: false, points: [{ x: start, y: ly }, { x: rowX - 1, y: ly }], rate: l.rate, hidden: hiddenManifold, kind, labelAt: { x: lastX, y: ly }, ...lt });
+              lineOut.set(l.id, { x: rowX - 1, y: ly });
+            }
+          });
+          return;
+        }
+        const ly = outY + band.top + 2;
+        const grouped = balanced && !isFluid(item);
+        const groups: PlacedMachine[][] = grouped ? mergeGroups(row) : [];
         // The line starts at the far-end merger (or the far machine), so nothing sticks out past it.
         const startX = grouped ? mergerX(groups[0]) : lastX;
         belts.push({ item, fluid: isFluid(item), points: [{ x: startX, y: ly }, { x: laneX[item], y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', labelAt: { x: lastX, y: ly }, ...t });
@@ -572,6 +840,22 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         touch(item, ly);
       }
     }
+    // Direct lines: each has its own track in the gap; a line between floors goes up or down a lift there.
+    for (const l of lines) {
+      const a = lineOut.get(l.id);
+      const b = lineIn.get(l.id);
+      if ((!a && !b) || !trackOf.has(l.id)) continue;
+      const tx = trackX0 + trackOf.get(l.id)! * TRACK;
+      const liftY = top - 3;
+      const tr = transportName(l.item, l.rate);
+      if (a && b) belts.push({ item: l.item, fluid: false, points: [a, { x: tx, y: a.y }, { x: tx, y: b.y }, b], rate: l.rate, hidden: hiddenBus, kind: 'tree', ...tr });
+      else {
+        const up = (floorOf.get(l.to.rowId) ?? 0) > (floorOf.get(l.from.rowId) ?? 0);
+        markers.push({ x: tx, y: liftY, kind: 'lift', item: l.item, label: a ? (up ? '↑' : '↓') : up ? '↑in' : '↓in' });
+        belts.push({ item: l.item, fluid: false, points: a ? [a, { x: tx, y: a.y }, { x: tx, y: liftY }] : [{ x: tx, y: liftY }, { x: tx, y: b!.y }, b!], rate: l.rate, hidden: hiddenBus, kind: 'tree', ...tr });
+      }
+    }
+
     if (balanced) {
       // Bus splitter trees: sideways in the gap, one belt from each output to the row (or lift / output) it feeds.
       const fed = new Set<string>();
@@ -710,7 +994,16 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
   notes.push('Machine input/output port positions are approximate — check each machine’s arrows in game and flip the row if needed.');
 
   if (balanced) {
-    notes.push('Balanced feeds: each row is fed through a splitter tree drawn above it, and a bus belt that feeds several rows is shared out by a sideways splitter tree next to the bus — every machine gets its share from the first minute, so nothing has to back up first. Dashed belts loop spare splitter outputs back into the merger above them.');
+    if (lines.length) {
+      const byItem = new Map<string, Line[]>();
+      for (const l of lines) byItem.set(l.item, [...(byItem.get(l.item) ?? []), l]);
+      const desc = [...byItem.entries()].map(([item, ls]) => {
+        const kinds = [...new Set(ls.map((l) => `${l.from.n}→${l.to.n}`))];
+        return `${itemName(item)}: ${ls.length} line${ls.length === 1 ? '' : 's'} (${kinds.join(', ')} machines each)`;
+      });
+      notes.push(`Direct lines (no bus): each line merges a few makers and splits evenly to a few users, so every machine gets its share with the fewest mergers and splitters — ${desc.join('; ')}.`);
+    }
+    notes.push('Balanced feeds: rows are fed through splitter trees drawn above them, and a bus belt that feeds several rows is shared out by a sideways splitter tree next to the bus — every machine gets its share from the first minute, so nothing has to back up first. Dashed belts loop spare splitter outputs back into the merger above them.');
     for (const w of beltWarnings) notes.push(w);
     notes.push('Outputs join their belts through mergers; belts are sized for the full flow, so machines don’t back up as long as the next step takes what they make.');
     if (lanes.some((l) => l.fluid)) notes.push('Pipes can’t be balanced with parts — a pipe manifold evens out by itself once it’s full. Feed long rows from both ends (loop the pipe back to the start) so the far machines fill sooner. Valves aren’t needed unless you want to cap one branch.');

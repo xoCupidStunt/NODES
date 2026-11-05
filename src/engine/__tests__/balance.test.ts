@@ -89,3 +89,39 @@ describe('balancer layouts', () => {
     expect(r[1]).toBeCloseTo(50);
   });
 });
+
+describe('direct lines between machine types', () => {
+  const build = async (target: string, rate: number, perRow = 12) => {
+    const { buildPlan } = await import('../plan');
+    const { buildSchematic } = await import('../schematic');
+    const { milestonesUpTo } = await import('../progression');
+    const { defaultSchematic } = await import('../types');
+    const f = {
+      id: 'a', name: 'T', target, rate, mode: 'power' as const, placement: 'manual' as const, location: null,
+      nodes: [], extraSupply: {}, also: [], imports: [], excluded: [], unlimitedRaw: true, clockCap: 100, useShards: false,
+      schematic: { ...defaultSchematic }, createdAt: 0,
+    };
+    const plan = buildPlan(f, { tier: 4, milestones: milestonesUpTo(4), mam: [], alts: [], shards: 0, sloops: 0 });
+    return { plan, sch: buildSchematic(plan, { ...defaultSchematic, maxPerRow: perRow }, target) };
+  };
+  const ingot = 'Desc_IronIngot_C';
+
+  it('feeds each constructor straight from a smelter when the counts match (no merging or splitting)', async () => {
+    const { plan, sch } = await build('Desc_IronPlate_C', 200); // 10 smelters → 10 constructors
+    expect(plan.groups.map((g) => g.count).sort()).toEqual([10, 10]);
+    const fl = sch.floors[0];
+    expect(sch.lanes.some((l) => l.item === ingot)).toBe(false); // ingots skip the bus
+    expect(fl.markers.filter((m) => m.item === ingot && (m.kind === 'splitter' || m.kind === 'merger'))).toHaveLength(0);
+    expect(sch.notes.join(' ')).toMatch(/Iron Ingot: 10 lines \(1→1 machines each\)/);
+  });
+
+  it('splits each smelter 1:2 when one smelter feeds two constructors', async () => {
+    const { plan, sch } = await build('Desc_IronRod_C', 150); // 5 smelters → 10 constructors
+    expect(plan.groups.map((g) => g.count).sort((a, b) => a - b)).toEqual([5, 10]);
+    const fl = sch.floors[0];
+    expect(fl.markers.filter((m) => m.item === ingot && m.kind === 'splitter')).toHaveLength(5);
+    expect(fl.markers.filter((m) => m.item === ingot && m.kind === 'merger')).toHaveLength(0);
+    expect(sch.notes.join(' ')).toMatch(/Iron Ingot: 5 lines \(1→2 machines each\)/);
+  });
+
+});
