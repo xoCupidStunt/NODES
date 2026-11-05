@@ -424,3 +424,8 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .balancer-svg { display: block; }
 .balancer-outs { margin: 4px 0; }
 .balancer-steps { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+
+/* Draggable machines on the schematic */
+.sch-machine { cursor: grab; }
+.sch-machine.dragging { cursor: grabbing; }
+.sch-canvas svg { touch-action: pan-x pan-y; user-select: none; }

@@ -125,3 +125,43 @@ describe('direct lines between machine types', () => {
   });
 
 });
+
+describe('moving machines on the schematic', () => {
+  const setup = async () => {
+    const { buildPlan } = await import('../plan');
+    const { buildSchematic } = await import('../schematic');
+    const { milestonesUpTo } = await import('../progression');
+    const { defaultSchematic } = await import('../types');
+    const f = {
+      id: 'a', name: 'T', target: 'Desc_IronRod_C', rate: 150, mode: 'power' as const, placement: 'manual' as const, location: null,
+      nodes: [], extraSupply: {}, also: [], imports: [], excluded: [], unlimitedRaw: true, clockCap: 100, useShards: false,
+      schematic: { ...defaultSchematic }, createdAt: 0,
+    };
+    const plan = buildPlan(f, { tier: 4, milestones: milestonesUpTo(4), mam: [], alts: [], shards: 0, sloops: 0 });
+    return { build: (o: object) => buildSchematic(plan, { ...defaultSchematic, ...o }, f.target), defaultSchematic };
+  };
+  const straight = (pts: { x: number; y: number }[]) => pts.every((p, k) => k === 0 || Math.abs(p.x - pts[k - 1].x) < 0.01 || Math.abs(p.y - pts[k - 1].y) < 0.01);
+
+  it('moves a dragged machine and keeps every belt straight-run and connected', async () => {
+    const { build } = await setup();
+    const before = build({});
+    const m0 = before.floors[0].machines.find((m) => m.recipe.name === 'Iron Rod')!;
+    const after = build({ moves: { [m0.id]: { dx: 8, dy: 4 } } });
+    const m1 = after.floors[0].machines.find((m) => m.id === m0.id)!;
+    expect(m1.x).toBeCloseTo(m0.x + 8);
+    expect(m1.y).toBeCloseTo(m0.y + 4);
+    for (const b of after.floors[0].belts) expect(straight(b.points)).toBe(true);
+    const p = m1.inPorts[0];
+    expect(after.floors[0].belts.some((b) => b.points.some((q) => Math.abs(q.x - p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01))).toBe(true);
+  });
+
+  it('centres short rows when asked', async () => {
+    const { build } = await setup();
+    const left = build({});
+    const mid = build({ center: true });
+    const short = (s: typeof left) => s.floors[0].rows.reduce((a, r) => (r.w < a.w ? r : a));
+    const wide = (s: typeof left) => s.floors[0].rows.reduce((a, r) => (r.w > a.w ? r : a));
+    expect(short(mid).x).toBeGreaterThan(short(left).x);
+    expect(short(mid).x + short(mid).w / 2).toBeCloseTo(wide(mid).x + wide(mid).w / 2, 0);
+  });
+});

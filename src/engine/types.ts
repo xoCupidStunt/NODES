@@ -23,6 +23,10 @@ export interface SchematicOptions {
    * 'manifold' = one belt past the machines with a splitter at each (simpler, but has to back up to fill).
    */
   distribution: 'balanced' | 'manifold';
+  /** Centre each row across the floor instead of lining rows up on the left. */
+  center?: boolean;
+  /** Machines dragged on the schematic: metres moved from where the layout put them, by machine id. */
+  moves?: Record<string, { dx: number; dy: number }>;
   /** Which side inputs come in from: worked out from where nodes and supplying factories are, or fixed. */
   orientation: 'auto' | 'N' | 'E' | 'S' | 'W';
 }

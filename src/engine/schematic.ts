@@ -90,6 +90,23 @@ function snap(v: number, mode: SchematicOptions['snap']) {
 }
 const toF = (m: number) => Math.ceil(m / F - 1e-9) * F;
 
+/**
+ * Belts only run straight: where two points differ both ways (a dragged machine), add two corners halfway along
+ * the longer direction, so the belt jogs across instead of cutting diagonally.
+ */
+export function squareOff(pts: Pt[]): Pt[] {
+  const out: Pt[] = [];
+  pts.forEach((p, k) => {
+    const a = pts[k - 1];
+    if (a && Math.abs(p.x - a.x) > 0.01 && Math.abs(p.y - a.y) > 0.01) {
+      if (Math.abs(p.y - a.y) >= Math.abs(p.x - a.x)) { const my = (a.y + p.y) / 2; out.push({ x: a.x, y: my }, { x: p.x, y: my }); }
+      else { const mx = (a.x + p.x) / 2; out.push({ x: mx, y: a.y }, { x: mx, y: p.y }); }
+    }
+    out.push(p);
+  });
+  return out;
+}
+
 /** World direction from a to b as an 8-point compass label (map y points south). */
 export function bearing(a: Pt, b: Pt) {
   const deg = (Math.atan2(b.x - a.x, -(b.y - a.y)) * 180) / Math.PI;
@@ -621,7 +638,11 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
 
     let y = top;
     for (const s of rowsSpec) {
-      const row: Row = { id: s.id, x: rowX, y, w: rowLen(s), h: rowH(s), recipe: s.recipe, machine: s.machine, count: s.count, clock: s.clock, inItems: s.inItems, outItems: s.outItems };
+      // Rows line up on the left, or sit centred across the floor.
+      const rowStart = rowX + (opt.center ? Math.round((maxRowLen - rowLen(s)) / 2) : 0);
+      // Where a machine's port sits before any dragging (splitter trees keep to this grid).
+      const homeIn = (k: number, j: number) => rowStart + k * s.pitch + (s.pitch - s.machine.w) / 2 + (s.machine.w * (j + 1)) / (s.inItems.length + 1);
+      const row: Row = { id: s.id, x: rowStart, y, w: rowLen(s), h: rowH(s), recipe: s.recipe, machine: s.machine, count: s.count, clock: s.clock, inItems: s.inItems, outItems: s.outItems };
       rows.push(row);
       const bodyY = y + s.inH;
       const outY = bodyY + s.bodyH;
@@ -629,8 +650,9 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
       const perMachine = (amt: number) => (amt * 60) / r.time * (s.clock / 100);
       // Machines
       for (let k = 0; k < s.count; k++) {
-        const mx = rowX + k * s.pitch + (s.pitch - s.machine.w) / 2;
-        const my = bodyY + (s.bodyH - s.machine.l) / 2;
+        const mv = opt.moves?.[`${s.id}:${k}`];
+        const mx = rowStart + k * s.pitch + (s.pitch - s.machine.w) / 2 + (mv?.dx ?? 0);
+        const my = bodyY + (s.bodyH - s.machine.l) / 2 + (mv?.dy ?? 0);
         const inPorts = s.inItems.map((item, j) => ({ item, x: mx + (s.machine.w * (j + 1)) / (s.inItems.length + 1), y: my }));
         const outPorts = s.outItems.map((item, j) => ({ item, x: mx + (s.machine.w * (j + 1)) / (s.outItems.length + 1), y: my + s.machine.l }));
         ms.push({ id: `${s.id}:${k}`, x: mx, y: my, w: s.machine.w, l: s.machine.l, machine: s.machine, recipe: r, clock: s.clock, index: k + 1, rowId: s.id, inPorts, outPorts });
@@ -659,7 +681,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
             const kind = slot === 0 ? 'manifold' : 'tree';
             const labelAt = { x: lastX, y: laneY };
             if (l.to.tree) {
-              const x0 = block[0].inPorts[j].x;
+              const x0 = homeIn(l.to.start, j);
               const map = (c: number, rr: number) => ({ x: x0 + c * s.pitch, y: rootY + rr * LEVEL });
               const top0 = map(l.to.tree.lay.col.get(0)!, 0);
               belts.push({ item, fluid: false, points: [entry, { x: top0.x, y: laneY }, top0], rate: l.rate, hidden: hiddenManifold, kind, labelAt, ...lt });
@@ -689,7 +711,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         entries.push({ item, rowId: s.id, pt: entry });
         const label = { x: lastX, y: ly };
         if (band.tree) {
-          const x0 = rowMs[0].inPorts[j].x;
+          const x0 = homeIn(0, j);
           const map = (c: number, rr: number) => ({ x: x0 + c * s.pitch, y: y + band.top + 1.5 + rr * LEVEL });
           const top0 = map(band.tree.lay.col.get(0)!, 0);
           belts.push({ item, fluid: false, points: [entry, top0], rate, hidden: hiddenManifold, kind: 'manifold', labelAt: label, ...t });
@@ -795,7 +817,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
       if (opt.showPower) {
         const per = 6;
         for (let k = 0; k < s.count; k += per) {
-          const px = rowX + k * s.pitch + Math.min(per, s.count - k) * s.pitch / 2;
+          const px = rowStart + k * s.pitch + Math.min(per, s.count - k) * s.pitch / 2;
           markers.push({ x: px, y: outY + s.outH - 0.5, kind: 'pole' });
         }
       }
@@ -941,6 +963,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         wire: [{ x: p.x, y: p.y }, { x: p.x, y: mid }, { x: cx, y: mid }, { x: cx, y }],
       };
     });
+    for (const b of belts) b.points = squareOff(b.points);
     floors.push({ index: fi, width, height, storeyHeight, rows, machines: ms, belts, markers, ports, walls, bus: { x: busX, w: busW }, outBoxes });
   });
 

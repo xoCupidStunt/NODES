@@ -17,6 +17,10 @@ export function SchematicView({ f }: { f: Factory }) {
   const o = f.schematic;
   const set = (patch: Partial<SchematicOptions>) => dispatch({ type: 'update', id: f.id, patch: { schematic: { ...o, ...patch } } });
   const [scale, setScale] = useState(5);
+  // Dragging a machine: where it started, and how far it has moved (metres, snapped) so far.
+  const [drag, setDrag] = useState<{ id: string; base: { dx: number; dy: number }; x: number; y: number; cur: { dx: number; dy: number } } | null>(null);
+  const live = useMemo<SchematicOptions>(() => (drag ? { ...o, moves: { ...o.moves, [drag.id]: drag.cur } } : o), [o, drag]);
+  const moved = Object.values(o.moves ?? {}).some((m) => m.dx || m.dy);
   const [floorSel, setFloorSel] = useState<number | 'all'>('all');
   const svgRef = useRef<SVGSVGElement>(null);
   // Zoom: keep the point in the middle of the view in the middle after the size changes.
@@ -69,6 +73,10 @@ export function SchematicView({ f }: { f: Factory }) {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   });
+  // Latest options and settings, for the drag listeners (they outlive the render that started the drag).
+  const latest = useRef({ o, set, scale });
+  latest.current = { o, set, scale };
+
   // Each floor's real drawn extent (labels included), measured after render; the first render estimates.
   const floorRefs = useRef<Record<number, SVGGElement | null>>({});
   const [measured, setMeasured] = useState<Record<number, Box>>({});
@@ -93,7 +101,7 @@ export function SchematicView({ f }: { f: Factory }) {
       return { name: src?.name ?? 'another factory', item: i.item, rate: i.rate, at: src?.location ?? null };
     }),
   }), [f.location, f.imports, state.factories]);
-  const sch = useMemo(() => (plan.status === 'ok' ? buildSchematic(plan, o, f.target, ctx) : null), [plan, o, f.target, ctx]);
+  const sch = useMemo(() => (plan.status === 'ok' ? buildSchematic(plan, live, f.target, ctx) : null), [plan, live, f.target, ctx]);
   const autoFacing = useMemo(() => (plan.status === 'ok' ? facingFor(plan, ctx).facing : 'N'), [plan, ctx]);
 
   if (!sch) {
@@ -104,6 +112,53 @@ export function SchematicView({ f }: { f: Factory }) {
   const GAP = 40;
   const FOOT = 34; // scale bar + north arrow under each floor
   const angle = ANGLE[sch.facing];
+  // Start dragging a machine; moves snap to the "Snap machines to" step, and turn with the drawing.
+  // Listeners go on straight away, so even a quick flick is caught; on release the move is kept (a machine dropped
+  // back where it started keeps no move).
+  const grab = (id: string, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const base = o.moves?.[id] ?? { dx: 0, dy: 0 };
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const rad = (angle * Math.PI) / 180;
+    let cur = base;
+    const at = (ev: PointerEvent) => {
+      const { o: oo, scale: sc } = latest.current;
+      const sx = (ev.clientX - x0) / sc;
+      const sy = (ev.clientY - y0) / sc;
+      // Screen → layout: undo the drawing's turn, then snap.
+      const lx = sx * Math.cos(rad) + sy * Math.sin(rad);
+      const ly = -sx * Math.sin(rad) + sy * Math.cos(rad);
+      const st = oo.snap === 'full' ? F : oo.snap === 'half' ? F / 2 : 1;
+      return { dx: base.dx + Math.round(lx / st) * st, dy: base.dy + Math.round(ly / st) * st };
+    };
+    const move = (ev: PointerEvent) => {
+      const next = at(ev);
+      if (next.dx === cur.dx && next.dy === cur.dy) return;
+      cur = next;
+      setDrag({ id, base, x: x0, y: y0, cur });
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      if (ev.type === 'pointerup') cur = at(ev);
+      const { o: oo, set: save } = latest.current;
+      if (cur.dx !== base.dx || cur.dy !== base.dy) {
+        const moves = { ...oo.moves };
+        if (cur.dx || cur.dy) moves[id] = cur;
+        else delete moves[id];
+        save({ moves });
+      }
+      setDrag(null);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    setDrag({ id, base, x: x0, y: y0, cur });
+  };
   const boxes = floors.map((fl) => turned(measured[fl.index] ?? floorBox(fl, sch, scale, o), angle));
   const totalH = boxes.reduce((a, b) => a + (b.y1 - b.y0) + HEADER + FOOT + GAP, 0);
   const totalW = Math.max(...boxes.map((b) => b.x1 - b.x0)) + 40;
@@ -148,6 +203,7 @@ export function SchematicView({ f }: { f: Factory }) {
           <Range label="Machines per row (max)" value={o.maxPerRow} min={1} max={30} step={1} onChange={(v) => set({ maxPerRow: v })} />
           <Range label="Floors" value={o.floors} min={1} max={8} step={1} onChange={(v) => set({ floors: v })} />
           <Range label="Outer walkway" value={o.border} min={0} max={3} step={1} unit="fdn" onChange={(v) => set({ border: v })} />
+          <label className="check"><input type="checkbox" checked={!!o.center} onChange={(e) => set({ center: e.target.checked })} /> Center machines in each row</label>
           <label className="field">Input side
             <select value={o.orientation ?? 'auto'} onChange={(e) => set({ orientation: e.target.value as SchematicOptions['orientation'] })}>
               <option value="auto">Toward the supply ({FACING_NAME[autoFacing]})</option>
@@ -209,7 +265,7 @@ export function SchematicView({ f }: { f: Factory }) {
         <div className="sch-summary">
           <b>{sch.width / F} × {sch.height / F} foundations</b> ({sch.width} × {sch.height} m) · {sch.floors.length} floor{sch.floors.length > 1 ? 's' : ''}
           {sch.floors.length > 1 && <> · storey heights {sch.floors.map((fl) => `${fl.storeyHeight} m`).join(' / ')}</>}
-          <span className="muted"> · 1 grid square = 1 foundation (8 m) · input wall faces {FACING_NAME[sch.facing]}</span>
+          <span className="muted"> · 1 grid square = 1 foundation (8 m) · input wall faces {FACING_NAME[sch.facing]} · drag a machine to move it; belts follow</span>
         </div>
         <div className="sch-canvas-wrap">
         <div className="sch-zoom" role="group" aria-label="Zoom">
@@ -220,6 +276,7 @@ export function SchematicView({ f }: { f: Factory }) {
             const el = canvasRef.current;
             if (el) fitWidth();
           }} title="Fit the width of the drawing">Fit</button>
+          <button className="small ghost" disabled={!moved} onClick={() => set({ moves: {} })} title="Put every dragged machine back where the layout generated it">Reset layout</button>
         </div>
         <div className="sch-canvas" ref={canvasRef}>
           <svg ref={svgRef} xmlns="http://www.w3.org/2000/svg" width={totalW} height={totalH} style={{ background: C.bg }} fontFamily="Segoe UI, Roboto, sans-serif">
@@ -237,7 +294,7 @@ export function SchematicView({ f }: { f: Factory }) {
                   <RotCtx.Provider value={angle}>
                     <g transform={`translate(${-b.x0}, ${HEADER - b.y0}) rotate(${angle})`}>
                       <g ref={(el) => { floorRefs.current[fl.index] = el; }}>
-                        <FloorDrawing fl={fl} s={scale} o={o} sources={fl.index === 0 ? sch.sources : []} />
+                        <FloorDrawing fl={fl} s={scale} o={o} sources={fl.index === 0 ? sch.sources : []} onGrab={grab} dragging={drag?.id ?? null} />
                       </g>
                     </g>
                   </RotCtx.Provider>
@@ -313,7 +370,7 @@ function Defs({ sch }: { sch: Schematic }) {
 }
 const markerId = (c: string) => 'arr-' + c.replace(/[^a-z0-9]/gi, '');
 
-function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: SchematicOptions; sources: SourceBox[] }) {
+function FloorDrawing({ fl, s, o, sources, onGrab, dragging }: { fl: Floor; s: number; o: SchematicOptions; sources: SourceBox[]; onGrab: (id: string, e: React.PointerEvent) => void; dragging: string | null }) {
   const W = fl.width * s;
   const H = fl.height * s;
   const cols = fl.width / F;
@@ -350,9 +407,9 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
       {fl.machines.map((m) => {
         const color = MACHINE_COLORS[m.machine.id] ?? '#888';
         return (
-          <g key={m.id}>
-            <rect x={m.x * s} y={m.y * s} width={m.w * s} height={m.l * s} fill={color} stroke={C.machineStroke} strokeWidth={1.5} rx={2}>
-              <title>{`${m.machine.name} #${m.index} — ${m.recipe.name} @ ${fmt(m.clock, 4)}% (${m.w} × ${m.l} m)`}</title>
+          <g key={m.id} className={`sch-machine ${dragging === m.id ? 'dragging' : ''}`} onPointerDown={(e) => onGrab(m.id, e)}>
+            <rect x={m.x * s} y={m.y * s} width={m.w * s} height={m.l * s} fill={color} stroke={dragging === m.id ? '#fff' : C.machineStroke} strokeWidth={dragging === m.id ? 2.5 : 1.5} rx={2}>
+              <title>{`${m.machine.name} #${m.index} — ${m.recipe.name} @ ${fmt(m.clock, 4)}% (${m.w} × ${m.l} m). Drag to move it.`}</title>
             </rect>
             {m.inPorts.map((p, k) => <path key={'i' + k} d={`M${p.x * s - 4},${p.y * s - 1} L${p.x * s + 4},${p.y * s - 1} L${p.x * s},${p.y * s + 6} z`} fill={itemColor(p.item)} stroke="#000" strokeWidth={0.8} />)}
             {m.outPorts.map((p, k) => <path key={'o' + k} d={`M${p.x * s - 4},${p.y * s - 6} L${p.x * s + 4},${p.y * s - 6} L${p.x * s},${p.y * s + 1} z`} fill={itemColor(p.item)} stroke="#000" strokeWidth={0.8} />)}
