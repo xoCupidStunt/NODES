@@ -304,7 +304,7 @@ function Defs({ sch }: { sch: Schematic }) {
   return (
     <defs>
       {[...colors].map((c) => (
-        <marker key={c} id={markerId(c)} viewBox="0 0 10 10" refX="5" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto">
+        <marker key={c} id={markerId(c)} viewBox="0 0 10 10" refX="5" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto">
           <path d="M0,0 L10,5 L0,10 z" fill={c} stroke="#000" strokeWidth="0.8" />
         </marker>
       ))}
@@ -432,17 +432,22 @@ function Belt({ b, s, dashed }: { b: BeltPath; s: number; dashed?: boolean }) {
   // Add a midpoint so straight runs get a direction arrow in the middle.
   const pts = b.points.length === 2 ? [b.points[0], { x: (b.points[0].x + b.points[1].x) / 2, y: (b.points[0].y + b.points[1].y) / 2 }, b.points[1]] : b.points;
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x * s},${p.y * s}`).join(' ');
-  const w = Math.max(2, (b.kind === 'bus' ? 1.4 : b.kind === 'tree' ? 0.6 : 1.1) * s) * (b.lanes > 1 ? 1.4 : 1);
+  const w = lineW(s);
+  // Direction arrows on long straight runs only; inside splitter trees the machines' port arrows say it.
+  const mid = b.points.length === 2 && (b.kind === 'bus' || b.kind === 'manifold');
   return (
     <g>
-      <path d={d} fill="none" stroke={color} strokeWidth={b.fluid ? w * 1.3 : w} strokeDasharray={dashed ? `${2 * s} ${1.5 * s}` : undefined}
-        markerMid={b.kind === 'feed' || b.kind === 'tree' ? undefined : `url(#${markerId(color)})`} markerEnd={b.kind === 'bus' ? undefined : `url(#${markerId(color)})`}>
+      <path d={d} fill="none" stroke={color} strokeWidth={w} strokeLinejoin="round" strokeDasharray={dashed ? `${2 * w} ${1.5 * w}` : undefined}
+        markerMid={mid ? `url(#${markerId(color)})` : undefined} markerEnd={b.kind === 'bus' || b.kind === 'tree' ? undefined : `url(#${markerId(color)})`}>
         <title>{`${itemName(b.item)} — ${fmt(b.rate, 2)}${b.fluid ? ' m³' : ''}/min on ${b.lanes > 1 ? b.lanes + '× ' : ''}${b.tier}${b.hidden ? ' (hidden)' : ''}`}</title>
       </path>
-      {b.fluid && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, w * 0.45)} />}
+      {b.fluid && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, w * 0.4)} />}
     </g>
   );
 }
+
+/** One width for every belt and pipe, so the plan reads evenly at any zoom. */
+const lineW = (s: number) => Math.max(2, 0.7 * s);
 
 const short = (name: string) =>
   ({ 'Particle Accelerator': 'P.Acc', 'Quantum Encoder': 'Q.Enc', Manufacturer: 'Manuf', Constructor: 'Constr', Assembler: 'Assem' } as Record<string, string>)[name] ?? name;
@@ -506,8 +511,8 @@ function Yard({ b, s }: { b: SourceBox; s: number }) {
   const dashed = b.kind === 'import' || b.kind === 'outside';
   return (
     <g>
-      <path d={d} fill="none" stroke={color} strokeWidth={Math.max(2, 1.1 * s) * (isFluid(b.item) ? 1.3 : 1)} strokeDasharray={dashed ? `${2 * s} ${1.5 * s}` : undefined} markerEnd={`url(#${markerId(color)})`} />
-      {isFluid(b.item) && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, 0.5 * s)} />}
+      <path d={d} fill="none" stroke={color} strokeWidth={lineW(s)} strokeLinejoin="round" strokeDasharray={dashed ? `${2 * lineW(s)} ${1.5 * lineW(s)}` : undefined} markerEnd={`url(#${markerId(color)})`} />
+      {isFluid(b.item) && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, lineW(s) * 0.4)} />}
       <rect x={b.x * s} y={b.y * s} width={b.w * s} height={b.h * s} rx={4} fill={C.yard} stroke={color} strokeWidth={2} strokeDasharray={dashed ? '6 4' : undefined}>
         <title>{lines.join('\n')}</title>
       </rect>

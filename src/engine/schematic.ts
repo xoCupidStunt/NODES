@@ -481,26 +481,34 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         const ly = outY + 2 + j * STRIP_LANE;
         const rate = perMachine(r.out[j][1]) * s.count;
         const t = transportName(item, rate);
-        const lastX = ms[ms.length - 1].outPorts[j].x;
-        belts.push({ item, fluid: isFluid(item), points: [{ x: lastX, y: ly }, { x: laneX[item], y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', ...t });
+        const row = ms.slice(-s.count);
+        const lastX = row[row.length - 1].outPorts[j].x;
+        // Balanced: just enough mergers. From the far end, the first merger takes 3 machines (odd rows) or 2, then
+        // each next one takes the line plus 2 more. A single machine needs none.
+        const grouped = balanced && !isFluid(item);
+        const groups: PlacedMachine[][] = [];
+        if (grouped) {
+          const rev = [...row].reverse();
+          let k = 0;
+          if (rev.length > 1 && rev.length % 2 === 1) { groups.push(rev.slice(0, 3)); k = 3; }
+          for (; k < rev.length; k += 2) groups.push(rev.slice(k, k + 2));
+        }
+        const mergerX = (grp: PlacedMachine[]) => {
+          const xs = grp.map((m) => m.outPorts[j].x);
+          return grp.length === 1 ? xs[0] : (Math.min(...xs) + Math.max(...xs)) / 2;
+        };
+        // The line starts at the far-end merger (or the far machine), so nothing sticks out past it.
+        const startX = grouped ? mergerX(groups[0]) : lastX;
+        belts.push({ item, fluid: isFluid(item), points: [{ x: startX, y: ly }, { x: laneX[item], y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', labelAt: { x: lastX, y: ly }, ...t });
         touch(item, ly);
         markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'merger', item });
-        const row = ms.slice(-s.count);
         const feed = (pts: Pt[], m: PlacedMachine) => {
           belts.push({ item, fluid: isFluid(item), points: pts, rate: perMachine(r.out[j][1]), hidden: hiddenManifold, kind: 'feed', ...transportName(item, perMachine(r.out[j][1])) });
           if (opt.logistics === 'underfloor') markers.push({ x: m.outPorts[j].x, y: m.outPorts[j].y + 1, kind: 'hole', item });
         };
-        if (balanced && !isFluid(item)) {
-          // Just enough mergers: from the far end, the first merger takes 3 machines (odd rows) or 2, then each
-          // next one takes the line plus 2 more. A single machine needs none.
-          const rev = [...row].reverse();
-          const groups: PlacedMachine[][] = [];
-          let k = 0;
-          if (rev.length > 1 && rev.length % 2 === 1) { groups.push(rev.slice(0, 3)); k = 3; }
-          for (; k < rev.length; k += 2) groups.push(rev.slice(k, k + 2));
+        if (grouped) {
           for (const grp of groups) {
-            const xs = grp.map((m) => m.outPorts[j].x);
-            const mx = grp.length === 1 ? xs[0] : (Math.min(...xs) + Math.max(...xs)) / 2;
+            const mx = mergerX(grp);
             if (row.length > 1) markers.push({ x: mx, y: ly, kind: 'merger', item });
             for (const m of grp) {
               const p = m.outPorts[j];
