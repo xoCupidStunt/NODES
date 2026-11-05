@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evenSplit, isSmooth, ratioSplit, smoothAtLeast } from '../balance';
+import { evenBalancer, evenSplit, isSmooth, ratioBalancer, ratioSplit, smoothAtLeast } from '../balance';
 
 describe('balancers', () => {
   it('knows which counts split evenly with splitters alone', () => {
@@ -43,15 +43,40 @@ describe('balanced schematic', () => {
     const sch = buildSchematic(plan, { ...defaultSchematic, maxPerRow: 10 }, f.target);
     const rows = sch.balancing.filter((b) => b.where === 'row');
     expect(rows).toHaveLength(3);
-    expect(rows[0].steps[0]).toMatch(/1→12 splitter tree/); // 10 machines: 12-way tree, 2 looped back
+    expect(rows[0].graph).toMatchObject({ splitters: 7, mergers: 2 }); // 10 machines: split in two, then 1:5 each
+    expect(rows[0].id).toMatch(/^B[0-9]+$/);
     const bus = sch.balancing.find((b) => b.where === 'bus')!;
-    expect(bus.steps.join(' ')).toMatch(/1→3 splitter tree/);
+    expect(bus.graph.splitters).toBe(1); // three equal rows: one 3-way splitter
     expect(bus.steps.join(' ')).toMatch(/at least what it needs/);
     const splitters = sch.bom.find((b) => b.name === 'Conveyor Splitters')!.count;
-    expect(splitters).toBe(3 * 10 + 1); // three 12-way trees + one 3-way bus split
+    expect(splitters).toBe(3 * 7 + 1); // three 1:10 balancers + one 3-way bus split
 
     const manifold = buildSchematic(plan, { ...defaultSchematic, maxPerRow: 10, distribution: 'manifold' }, f.target);
     expect(manifold.balancing).toHaveLength(0);
     expect(manifold.notes.join(' ')).toMatch(/back up/);
+  });
+});
+
+describe('balancer layouts', () => {
+  const outRates = (g: ReturnType<typeof evenBalancer>) =>
+    g.nodes.filter((n) => n.kind === 'out').map((n) => g.edges.filter((e) => e.to === n.id).reduce((a, e) => a + e.rate, 0));
+  it('matches the standard designs', () => {
+    expect(evenBalancer(8, 80)).toMatchObject({ splitters: 7, mergers: 0 });
+    expect(evenBalancer(6, 60)).toMatchObject({ splitters: 3, mergers: 0 });
+    expect(evenBalancer(5, 50)).toMatchObject({ splitters: 3, mergers: 1, maxRate: 60 }); // 1:6 with 1 looped back
+    expect(evenBalancer(7, 70)).toMatchObject({ splitters: 7, mergers: 1 }); // 1:8 with 1 looped back
+    expect(evenBalancer(10, 100)).toMatchObject({ splitters: 7, mergers: 2 }); // split in two, then 1:5 each
+    for (const n of [5, 7, 10, 11, 13, 14, 15, 17, 30]) {
+      const r = outRates(evenBalancer(n, n * 10));
+      expect(r).toHaveLength(n);
+      for (const v of r) expect(v).toBeCloseTo(10, 6);
+    }
+  });
+  it('gives whole branches to one belt instead of splitting and merging back', () => {
+    const g = ratioBalancer([7, 5], 120);
+    expect(g).toMatchObject({ splitters: 3, mergers: 2 });
+    const r = outRates(g);
+    expect(r[0]).toBeCloseTo(70);
+    expect(r[1]).toBeCloseTo(50);
   });
 });

@@ -4,6 +4,7 @@ import { buildSchematic, facingFor, type BeltPath, type Facing, type Floor, type
 import { defaultSchematic, type Factory, type SchematicOptions } from '../engine/types';
 import { useStore } from '../state';
 import { fmt } from './ui';
+import { BalancerBlock } from './BalancerDiagram';
 
 const C = {
   yard: '#262c35',
@@ -396,10 +397,10 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
           case 'hole': return <rect key={k} x={x - 3} y={y - 3} width={6} height={6} fill="none" stroke={C.hole} strokeWidth={1.5}><title>Conveyor floor hole</title></rect>;
           case 'pole': return <circle key={k} cx={x} cy={y} r={Math.max(3, 0.8 * s)} fill={C.pole} stroke="#000"><title>Power pole</title></circle>;
           case 'balancer': {
-            const bw = Math.max(26, 4.5 * s);
+            const bw = Math.max((m.label?.length ?? 4) * 6.2 + 8, 4.5 * s);
             const bh = Math.max(12, 2.2 * s);
             return (
-              <g key={k} opacity={o.logistics === 'visible' ? 1 : 0.75}>
+              <g key={k} opacity={o.logistics === 'visible' ? 1 : 0.75} style={{ cursor: 'pointer' }} onClick={() => document.getElementById(`bal-${m.label?.split(' ')[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
                 <rect x={x - bw / 2} y={y - bh / 2} width={bw} height={bh} rx={3} fill="#fff" stroke={itemColor(m.item!)} strokeWidth={2} />
                 <T x={x} y={y + 3.5} fontSize={Math.max(8, Math.min(11, bh * 0.7))} fontWeight={700} fill="#111" textAnchor="middle">{m.label}</T>
                 <title>{m.title ?? 'Balanced splitter tree'}</title>
@@ -547,20 +548,14 @@ function BalancingCard({ sch }: { sch: Schematic }) {
       </div>
       <p className="muted small-text">
         {sch.balancing.length} balanced split{sch.balancing.length === 1 ? '' : 's'} · {parts.s} splitters and {parts.m} mergers in total (already in the bill of materials).
-        Build each tree before connecting the machines, so every one starts at its share.
+        Each one is drawn below: S = Conveyor Splitter, M = Conveyor Merger, numbers are items per minute, dashed belts loop back. Click a B-marker on the plan to jump to its drawing.
       </p>
       {open && floors.map((fi) => (
         <div key={fi}>
           {floors.length > 1 && <h4>Floor {fi + 1}</h4>}
-          <ol className="balancing-list">
-            {sch.balancing.filter((b) => b.floor === fi).sort((a, b) => (a.where === b.where ? 0 : a.where === 'bus' ? -1 : 1)).map((b, k) => (
-              <li key={k}>
-                <b><span className="mdot" style={{ background: itemColor(b.item) }} />{b.title}</b>
-                <ul>{b.steps.map((st) => <li key={st}>{st}</li>)}</ul>
-                {b.warn && <p className="warn-text small-text">{b.warn}</p>}
-              </li>
-            ))}
-          </ol>
+          <div className="balancing-list">
+            {sch.balancing.filter((b) => b.floor === fi).map((b) => <BalancerBlock key={b.id} step={b} />)}
+          </div>
         </div>
       ))}
     </section>

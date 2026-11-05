@@ -414,3 +414,13 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .balancing-list { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
 .balancing-list > li > ul { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
 .balancing-list > li > ul li { margin: 2px 0; }
+
+/* Balancer drawings */
+.balancing-list { display: flex; flex-direction: column; gap: 16px; padding-left: 0; }
+.balancer-block { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel2); scroll-margin-top: 80px; }
+.balancer-head { align-items: center; }
+.balancer-id { background: #fff; color: #111; font-weight: 800; border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+.balancer-scroll { overflow-x: auto; margin: 8px 0 4px; }
+.balancer-svg { display: block; }
+.balancer-outs { margin: 4px 0; }
+.balancer-steps { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }

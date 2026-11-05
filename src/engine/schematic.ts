@@ -2,7 +2,7 @@ import { FOUNDATION as F, isFluid, isPower, itemName, POWER, type Machine, type 
 import type { Plan } from './plan';
 import { availableBelts, availablePipes } from './progression';
 import type { SchematicOptions } from './types';
-import { evenSplit, ratioSplit, stagesText } from './balance';
+import { evenBalancer, ratioBalancer, ratioSplit, type BalancerGraph } from './balance';
 
 /*
  * Floor-plan generator. Everything is in metres, x = east, y = south, origin at the floor's
@@ -33,8 +33,14 @@ export interface BeltPath {
 export interface Marker { x: number; y: number; kind: 'splitter' | 'merger' | 'junction' | 'lift' | 'hole' | 'pole' | 'balancer'; item?: string; label?: string; title?: string }
 /** How to build one balanced split, for the build guide. */
 export interface BalanceStep {
+  /** Short code shown on the floor plan (B1, B2…). */
+  id: string;
   floor: number; item: string; where: 'bus' | 'row'; title: string; steps: string[];
   splitters: number; mergers: number; warn?: string;
+  /** The splitters and mergers to build, with the rate on every belt. */
+  graph: BalancerGraph;
+  /** What each output feeds, in output order. */
+  destNames: string[];
 }
 export interface Port { x: number; y: number; item: string; rate: number; dir: 'in' | 'out'; label: string }
 export interface WallSeg { a: Pt; b: Pt; holes?: number[] }
@@ -127,6 +133,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   const balancing: BalanceStep[] = [];
   const plural = (n: number, w: string) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`}`;
   const r1 = (v: number) => Math.round(v * 10) / 10;
+  let balSeq = 0;
 
   // ---- rows: split each machine group into chunks of maxPerRow ----
   type RowSpec = Omit<Row, 'x' | 'y' | 'w' | 'h'> & { pitch: number; bodyH: number; inH: number; outH: number; groupId: string; frac: number };
@@ -341,27 +348,26 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
           consumers.push({ name: rowName(s), need: rate, y: ly });
         }
         if (even) {
-          const es = evenSplit(s.count);
-          const load = rate * es.beltLoad;
-          const lt = transportName(item, load);
+          const g = evenBalancer(s.count, rate);
+          const id = `B${++balSeq}`;
+          const lt = transportName(item, g.maxRate);
           const machinesTxt = plural(s.count, s.machine.name);
-          markers.push({ x: rowX - F / 2, y: ly, kind: 'balancer', item, label: `1→${s.count}`, title: `${itemName(item)}: balanced 1→${s.count} split` });
+          const loops = g.edges.some((e) => e.loop);
+          markers.push({ x: rowX - F / 2, y: ly, kind: 'balancer', item, label: `${id} 1:${s.count}`, title: `${id}: ${itemName(item)} 1:${s.count} balancer (diagram under Load balancing)` });
           balancing.push({
-            floor: fi, item, where: 'row',
+            id, floor: fi, item, where: 'row', graph: g,
             title: `${itemName(item)} → ${machinesTxt} (${rowName(s)})`,
-            splitters: es.splitters, mergers: es.mergers,
-            steps: es.loopBack
-              ? [
-                  `Build a 1→${es.size} splitter tree: ${stagesText(es.stages)} (${plural(es.splitters, 'splitter')}).`,
-                  `Run ${s.count} of its outputs to the ${machinesTxt}, one each.`,
-                  `Loop the other ${plural(es.loopBack, 'output')} back and merge ${es.loopBack === 1 ? 'it' : 'them'} into the incoming belt just before the first splitter (${plural(es.mergers, 'merger')}).`,
-                  `With the loop-back, the belt into the first splitter carries about ${r1(load)}/min — ${lt.lanes > 1 ? 'more than one belt can take' : `${lt.tier} or faster`}.`,
-                ]
-              : [
-                  `Build a 1→${s.count} splitter tree: ${stagesText(es.stages)} (${plural(es.splitters, 'splitter')}).`,
-                  `Run one output to each ${s.machine.name}.`,
-                ],
-            warn: lt.lanes > 1 ? `The loop-back pushes this belt past ${t.tier}’s limit — lower “Machines per row” so the row splits in two, or unlock a faster belt.` : undefined,
+            destNames: ms.slice(-s.count).map((m) => `${s.machine.name} ${m.index}`),
+            splitters: g.splitters, mergers: g.mergers,
+            steps: [
+              `${plural(g.splitters, 'splitter')}${g.mergers ? ` and ${plural(g.mergers, 'merger')}` : ''}, built as in the diagram. Outputs 1–${s.count} feed the ${machinesTxt} in order along the row.`,
+              ...(loops ? [`Dashed belts carry spare outputs back up into the merger above them. With that loop-back the busiest belt carries ${r1(g.maxRate)}/min${t.lanes > 1 ? '' : ` (${lt.lanes > 1 ? 'more than one belt can take' : `${lt.tier} or faster`})`}.`] : []),
+            ],
+            warn: t.lanes > 1
+              ? `This row takes ${r1(rate)}/min, more than one ${t.tier} carries. Lower "Machines per row" so each row fits on one belt, or unlock a faster belt.`
+              : lt.lanes > 1
+                ? `The loop-back pushes a belt past ${t.tier}'s limit. Lower "Machines per row" so the row splits in two, or unlock a faster belt.`
+                : undefined,
           });
         }
         for (const m of ms.slice(-s.count)) {
@@ -381,11 +387,34 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
         belts.push({ item, fluid: isFluid(item), points: [{ x: lastX, y: ly }, { x: laneX[item], y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', ...t });
         touch(item, ly);
         markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'merger', item });
-        for (const m of ms.slice(-s.count)) {
-          const p = m.outPorts[j];
-          markers.push({ x: p.x, y: ly, kind: isFluid(item) ? 'junction' : 'merger', item });
-          belts.push({ item, fluid: isFluid(item), points: [{ x: p.x, y: p.y }, { x: p.x, y: ly }], rate: perMachine(r.out[j][1]), hidden: hiddenManifold, kind: 'feed', ...transportName(item, perMachine(r.out[j][1])) });
-          if (opt.logistics === 'underfloor') markers.push({ x: p.x, y: p.y + 1, kind: 'hole', item });
+        const row = ms.slice(-s.count);
+        const feed = (pts: Pt[], m: PlacedMachine) => {
+          belts.push({ item, fluid: isFluid(item), points: pts, rate: perMachine(r.out[j][1]), hidden: hiddenManifold, kind: 'feed', ...transportName(item, perMachine(r.out[j][1])) });
+          if (opt.logistics === 'underfloor') markers.push({ x: m.outPorts[j].x, y: m.outPorts[j].y + 1, kind: 'hole', item });
+        };
+        if (balanced && !isFluid(item)) {
+          // Just enough mergers: from the far end, the first merger takes 3 machines (odd rows) or 2, then each
+          // next one takes the line plus 2 more. A single machine needs none.
+          const rev = [...row].reverse();
+          const groups: PlacedMachine[][] = [];
+          let k = 0;
+          if (rev.length > 1 && rev.length % 2 === 1) { groups.push(rev.slice(0, 3)); k = 3; }
+          for (; k < rev.length; k += 2) groups.push(rev.slice(k, k + 2));
+          for (const grp of groups) {
+            const xs = grp.map((m) => m.outPorts[j].x);
+            const mx = grp.length === 1 ? xs[0] : (Math.min(...xs) + Math.max(...xs)) / 2;
+            if (row.length > 1) markers.push({ x: mx, y: ly, kind: 'merger', item });
+            for (const m of grp) {
+              const p = m.outPorts[j];
+              feed(Math.abs(p.x - mx) < 0.01 ? [{ x: p.x, y: p.y }, { x: p.x, y: ly }] : [{ x: p.x, y: p.y }, { x: p.x, y: ly - 1.5 }, { x: mx, y: ly - 1.5 }, { x: mx, y: ly }], m);
+            }
+          }
+        } else {
+          for (const m of row) {
+            const p = m.outPorts[j];
+            markers.push({ x: p.x, y: ly, kind: isFluid(item) ? 'junction' : 'merger', item });
+            feed([{ x: p.x, y: p.y }, { x: p.x, y: ly }], m);
+          }
         }
       });
       // Power poles between machine pairs on the walkway side.
@@ -460,26 +489,31 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
           if (away > 1e-6) users.push({ name: 'the lift to other floors', need: away, y: top - 3 });
         }
         if (users.length < 2) continue;
+        // Biggest first: their parts line up with whole branches, and the drawing reads A, B, C… left to right.
+        users.sort((a2, b2) => b2.need - a2.need);
         // A balanced split corrects small misses by itself (a full branch's share goes to the others), so a
         // small tree within a few percent beats a huge exact one.
         const rs = ratioSplit(users.map((x) => x.need), 0.05, 18);
+        const total = users.reduce((a, x2) => a + x2.need, 0);
+        const g = ratioBalancer(rs.shares, total);
+        const id = `B${++balSeq}`;
         const x = laneX[item];
         const y = Math.min(...users.map((x2) => x2.y)) - 2.5;
-        markers.push({ x, y, kind: 'balancer', item, label: `÷${rs.parts}`, title: `${itemName(item)}: bus split into ${rs.parts} parts` });
-        const sp = rs.split;
-        const give = users.map((x2, i) => `${rs.shares[i]} to ${x2.name}`).join(', ');
+        const letters = users.map((_, i) => String.fromCharCode(65 + i));
+        markers.push({ x, y, kind: 'balancer', item, label: `${id} ÷${users.length}`, title: `${id}: ${itemName(item)} shared between ${users.length} belts (diagram under Load balancing)` });
         balancing.push({
-          floor: fi, item, where: 'bus',
+          id, floor: fi, item, where: 'bus', graph: g,
           title: `${itemName(item)} bus → ${users.length} belts`,
-          splitters: sp.splitters, mergers: sp.mergers + rs.joinMergers,
+          destNames: users.map((u, i) => `${letters[i]}: ${u.name}`),
+          splitters: g.splitters, mergers: g.mergers,
           steps: [
-            `Bring all the ${itemName(item)} for this floor onto one belt, then build a 1→${rs.parts} splitter tree: ${stagesText(sp.stages)} (${plural(sp.splitters, 'splitter')})${sp.loopBack ? `, looping ${plural(sp.loopBack, 'output')} back into its start (${plural(sp.mergers, 'merger')})` : ''}.`,
-            `Hand out its ${rs.parts} outputs: ${give}${rs.joinMergers ? ` — merge each group into one belt (${plural(rs.joinMergers, 'merger')})` : ''}.`,
+            `Bring all the ${itemName(item)} for this floor onto one belt, then split it as in the diagram: ${plural(g.splitters, 'splitter')}${g.mergers ? ` and ${plural(g.mergers, 'merger')}` : ''}.`,
+            `Outputs: ${users.map((u, i) => `${letters[i]} → ${u.name}, ${rs.shares[i]} of ${rs.parts} parts (${r1((total * rs.shares[i]) / rs.parts)}/min, needs ${r1(u.need)})`).join('; ')}.`,
             rs.error < 1e-3
               ? 'Every belt gets at least what it needs; any that get a little extra fill up first and pass the rest on.'
-              : `One belt gets up to ${Math.max(1, Math.round(rs.error * 100))} % less than it needs at first. The belts that get a little extra fill up within minutes, then the splitters pass their share on and it catches up — only those short stretches back up, not the whole line.`,
+              : `One belt gets up to ${Math.max(1, Math.round(rs.error * 100))} % less than it needs at first. The belts that get a little extra fill up within minutes, then the splitters pass their share on and it catches up. Only those short stretches back up, not the whole line.`,
           ],
-          warn: rs.error > 0.2 ? `The closest small split is off by up to ${Math.round(rs.error * 100)} % for one belt — it still evens out, but the short belt waits a little longer at start-up. Giving that row its own supply line avoids it.` : undefined,
+          warn: rs.error > 0.2 ? `The closest small split is off by up to ${Math.round(rs.error * 100)} % for one belt. It still evens out, but the short belt waits a little longer at start-up. Giving that row its own supply line avoids it.` : undefined,
         });
       }
     }
