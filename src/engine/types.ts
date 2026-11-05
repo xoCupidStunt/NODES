@@ -18,6 +18,11 @@ export interface SchematicOptions {
   showLabels: boolean;
   showRates: boolean;
   showPower: boolean;
+  /**
+   * How belts feed machines: 'balanced' = splitter trees so every machine gets an equal share from the start;
+   * 'manifold' = one belt past the machines with a splitter at each (simpler, but has to back up to fill).
+   */
+  distribution: 'balanced' | 'manifold';
   /** Which side inputs come in from: worked out from where nodes and supplying factories are, or fixed. */
   orientation: 'auto' | 'N' | 'E' | 'S' | 'W';
 }
@@ -35,6 +40,7 @@ export const defaultSchematic: SchematicOptions = {
   showRates: true,
   showPower: true,
   orientation: 'auto',
+  distribution: 'balanced',
 };
 
 /**

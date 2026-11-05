@@ -2,6 +2,7 @@ import { FOUNDATION as F, isFluid, isPower, itemName, POWER, type Machine, type 
 import type { Plan } from './plan';
 import { availableBelts, availablePipes } from './progression';
 import type { SchematicOptions } from './types';
+import { evenSplit, ratioSplit, stagesText } from './balance';
 
 /*
  * Floor-plan generator. Everything is in metres, x = east, y = south, origin at the floor's
@@ -29,7 +30,12 @@ export interface BeltPath {
   item: string; fluid: boolean; points: Pt[]; rate: number; hidden: boolean;
   kind: 'bus' | 'manifold' | 'feed' | 'port'; tier: string; lanes: number;
 }
-export interface Marker { x: number; y: number; kind: 'splitter' | 'merger' | 'junction' | 'lift' | 'hole' | 'pole'; item?: string; label?: string }
+export interface Marker { x: number; y: number; kind: 'splitter' | 'merger' | 'junction' | 'lift' | 'hole' | 'pole' | 'balancer'; item?: string; label?: string; title?: string }
+/** How to build one balanced split, for the build guide. */
+export interface BalanceStep {
+  floor: number; item: string; where: 'bus' | 'row'; title: string; steps: string[];
+  splitters: number; mergers: number; warn?: string;
+}
 export interface Port { x: number; y: number; item: string; rate: number; dir: 'in' | 'out'; label: string }
 export interface WallSeg { a: Pt; b: Pt; holes?: number[] }
 export interface Row {
@@ -70,6 +76,8 @@ export interface Schematic {
   /** The compass side the input wall faces. The layout is drawn inputs-at-top and turned to this. */
   facing: Facing;
   facingWhy: string;
+  /** Splitter trees that give every machine (and every row) an equal share, when distribution is 'balanced'. */
+  balancing: BalanceStep[];
 }
 
 const LANE = 3; // metres between bus lanes
@@ -115,6 +123,10 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   const pipe = availablePipes(u).at(-1)!;
   const hiddenManifold = opt.logistics !== 'visible';
   const hiddenBus = opt.logistics !== 'visible';
+  const balanced = (opt.distribution ?? 'balanced') === 'balanced';
+  const balancing: BalanceStep[] = [];
+  const plural = (n: number, w: string) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : `${w}s`}`;
+  const r1 = (v: number) => Math.round(v * 10) / 10;
 
   // ---- rows: split each machine group into chunks of maxPerRow ----
   type RowSpec = Omit<Row, 'x' | 'y' | 'w' | 'h'> & { pitch: number; bodyH: number; inH: number; outH: number; groupId: string; frac: number };
@@ -137,6 +149,12 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
       });
     }
   }
+
+  // Rows of one recipe are numbered when it needs several.
+  const chunks: Record<string, number> = {};
+  for (const s of specs) chunks[s.groupId] = (chunks[s.groupId] ?? 0) + 1;
+  const rowName = (s: { id: string; groupId: string; recipe: Recipe }) =>
+    `${s.recipe.name}${chunks[s.groupId] > 1 ? ` row ${Number(s.id.split('#')[1]) + 1}` : ''}`;
 
   // ---- bus lanes: one per item that moves between rows or crosses the factory edge ----
   const laneItems: string[] = [];
@@ -284,6 +302,8 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
     const ports: Port[] = [];
     const walls: WallSeg[] = [];
     const laneSpan: Record<string, [number, number]> = {};
+    /** Belts taking each item from the bus on this floor (rows, and what leaves the floor), for the bus split. */
+    const busUse: Record<string, { name: string; need: number; y: number }[]> = {};
     const touch = (item: string, y: number) => {
       const s = laneSpan[item];
       laneSpan[item] = s ? [Math.min(s[0], y), Math.max(s[1], y)] : [y, y];
@@ -313,10 +333,40 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
         const lastX = ms[ms.length - 1].inPorts[j].x;
         belts.push({ item, fluid: isFluid(item), points: [{ x: laneX[item], y: ly }, { x: lastX, y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', ...t });
         touch(item, ly);
-        markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'splitter', item });
+        // Balanced: a splitter tree at the start of the row gives each machine an equal share from the start.
+        const even = balanced && !isFluid(item) && s.count > 1;
+        if (!balanced || isFluid(item)) markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'splitter', item });
+        if (balanced && !isFluid(item)) {
+          const consumers = (busUse[item] ??= []);
+          consumers.push({ name: rowName(s), need: rate, y: ly });
+        }
+        if (even) {
+          const es = evenSplit(s.count);
+          const load = rate * es.beltLoad;
+          const lt = transportName(item, load);
+          const machinesTxt = plural(s.count, s.machine.name);
+          markers.push({ x: rowX - F / 2, y: ly, kind: 'balancer', item, label: `1→${s.count}`, title: `${itemName(item)}: balanced 1→${s.count} split` });
+          balancing.push({
+            floor: fi, item, where: 'row',
+            title: `${itemName(item)} → ${machinesTxt} (${rowName(s)})`,
+            splitters: es.splitters, mergers: es.mergers,
+            steps: es.loopBack
+              ? [
+                  `Build a 1→${es.size} splitter tree: ${stagesText(es.stages)} (${plural(es.splitters, 'splitter')}).`,
+                  `Run ${s.count} of its outputs to the ${machinesTxt}, one each.`,
+                  `Loop the other ${plural(es.loopBack, 'output')} back and merge ${es.loopBack === 1 ? 'it' : 'them'} into the incoming belt just before the first splitter (${plural(es.mergers, 'merger')}).`,
+                  `With the loop-back, the belt into the first splitter carries about ${r1(load)}/min — ${lt.lanes > 1 ? 'more than one belt can take' : `${lt.tier} or faster`}.`,
+                ]
+              : [
+                  `Build a 1→${s.count} splitter tree: ${stagesText(es.stages)} (${plural(es.splitters, 'splitter')}).`,
+                  `Run one output to each ${s.machine.name}.`,
+                ],
+            warn: lt.lanes > 1 ? `The loop-back pushes this belt past ${t.tier}’s limit — lower “Machines per row” so the row splits in two, or unlock a faster belt.` : undefined,
+          });
+        }
         for (const m of ms.slice(-s.count)) {
           const p = m.inPorts[j];
-          markers.push({ x: p.x, y: ly, kind: isFluid(item) ? 'junction' : 'splitter', item });
+          if (!even) markers.push({ x: p.x, y: ly, kind: isFluid(item) ? 'junction' : 'splitter', item });
           belts.push({ item, fluid: isFluid(item), points: [{ x: p.x, y: ly }, { x: p.x, y: p.y }], rate: perMachine(r.in[j][1]), hidden: hiddenManifold, kind: 'feed', ...transportName(item, perMachine(r.in[j][1])) });
           if (opt.logistics === 'underfloor') markers.push({ x: p.x, y: p.y - 1, kind: 'hole', item });
         }
@@ -394,6 +444,46 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
       belts.push({ item: lane.item, fluid: lane.fluid, points: [{ x: lane.x, y: span[0] }, { x: lane.x, y: span[1] }], rate, hidden: hiddenBus, kind: 'bus', ...transportName(lane.item, rate) });
     }
 
+    // Balanced: where a bus lane feeds several belts, one splitter tree shares it out by what each needs.
+    if (balanced) {
+      for (const [item, rowsUsing] of Object.entries(busUse)) {
+        const users = [...rowsUsing];
+        const out = ports.filter((p) => p.dir === 'out' && p.item === item).reduce((a, p) => a + p.rate, 0);
+        if (out > 1e-6) users.push({ name: 'the output port', need: out, y: portBottom });
+        // Made here and used upstairs/downstairs where it isn't made: that share goes to the lift.
+        if (makers[item]?.has(fi)) {
+          let away = 0;
+          floorSpecs.forEach((rs2, f2) => {
+            if (f2 === fi || makers[item]?.has(f2)) return;
+            for (const s of rs2) s.inItems.forEach((i, j) => { if (i === item) away += (s.recipe.in[j][1] * 60) / s.recipe.time * (s.clock / 100) * s.count; });
+          });
+          if (away > 1e-6) users.push({ name: 'the lift to other floors', need: away, y: top - 3 });
+        }
+        if (users.length < 2) continue;
+        // A balanced split corrects small misses by itself (a full branch's share goes to the others), so a
+        // small tree within a few percent beats a huge exact one.
+        const rs = ratioSplit(users.map((x) => x.need), 0.05, 18);
+        const x = laneX[item];
+        const y = Math.min(...users.map((x2) => x2.y)) - 2.5;
+        markers.push({ x, y, kind: 'balancer', item, label: `÷${rs.parts}`, title: `${itemName(item)}: bus split into ${rs.parts} parts` });
+        const sp = rs.split;
+        const give = users.map((x2, i) => `${rs.shares[i]} to ${x2.name}`).join(', ');
+        balancing.push({
+          floor: fi, item, where: 'bus',
+          title: `${itemName(item)} bus → ${users.length} belts`,
+          splitters: sp.splitters, mergers: sp.mergers + rs.joinMergers,
+          steps: [
+            `Bring all the ${itemName(item)} for this floor onto one belt, then build a 1→${rs.parts} splitter tree: ${stagesText(sp.stages)} (${plural(sp.splitters, 'splitter')})${sp.loopBack ? `, looping ${plural(sp.loopBack, 'output')} back into its start (${plural(sp.mergers, 'merger')})` : ''}.`,
+            `Hand out its ${rs.parts} outputs: ${give}${rs.joinMergers ? ` — merge each group into one belt (${plural(rs.joinMergers, 'merger')})` : ''}.`,
+            rs.error < 1e-3
+              ? 'Every belt gets at least what it needs; any that get a little extra fill up first and pass the rest on.'
+              : `One belt gets up to ${Math.max(1, Math.round(rs.error * 100))} % less than it needs at first. The belts that get a little extra fill up within minutes, then the splitters pass their share on and it catches up — only those short stretches back up, not the whole line.`,
+          ],
+          warn: rs.error > 0.2 ? `The closest small split is off by up to ${Math.round(rs.error * 100)} % for one belt — it still evens out, but the short belt waits a little longer at start-up. Giving that row its own supply line avoids it.` : undefined,
+        });
+      }
+    }
+
     // Walls
     if (opt.perimeterWalls) {
       const doorsTop = ports.filter((p) => p.dir === 'in').map((p) => p.x);
@@ -465,6 +555,7 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
     }
     for (const w of f.walls) wallHoles += w.holes?.length ?? 0;
   }
+  for (const b of balancing) { splitters += b.splitters; mergers += b.mergers; }
   for (const [tier, len] of Object.entries(beltLen).sort()) bom.push({ name: tier, count: Math.ceil(len), unit: 'm' });
   if (splitters) bom.push({ name: 'Conveyor Splitters', count: splitters });
   if (mergers) bom.push({ name: 'Conveyor Mergers', count: mergers });
@@ -488,7 +579,14 @@ export function buildSchematic(plan: Plan, opt: SchematicOptions, target: string
   notes.push(`Belts sized from what you have unlocked (best: ${belt.name}, ${belt.rate}/min). Labels like “×2” mean parallel lines.`);
   notes.push('Machine input/output port positions are approximate — check each machine’s arrows in game and flip the row if needed.');
 
+  if (balanced) {
+    if (balancing.length) notes.push('Balanced feeds: splitter trees (marked 1→N and ÷N) give every machine and every row its share from the first minute, so nothing has to back up before the last machine runs. Build steps are under “Load balancing”.');
+    notes.push('Outputs join their belts through mergers; belts are sized for the full flow, so machines don’t back up as long as the next step takes what they make.');
+    if (lanes.some((l) => l.fluid)) notes.push('Pipes can’t be balanced with parts — a pipe manifold evens out by itself once it’s full. Feed long rows from both ends (loop the pipe back to the start) so the far machines fill sooner. Valves aren’t needed unless you want to cap one branch.');
+  } else {
+    notes.push('Manifold feeds: one belt runs past the machines with a splitter at each. The first machines fill up first, so let the belt back up before the last ones run at full speed.');
+  }
   if (sources.length) notes.push('Miners, extractors and other supply are drawn in a yard outside the input wall, each wired to its input port. Distances and directions are from the factory’s spot on the map.');
   notes.push(facingWhy);
-  return { floors, width, height, lanes, bom, notes, sources, yardH, facing, facingWhy };
+  return { floors, width, height, lanes, bom, notes, sources, yardH, facing, facingWhy, balancing };
 }

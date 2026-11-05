@@ -171,6 +171,12 @@ export function SchematicView({ f }: { f: Factory }) {
               <option value="walls">Hidden behind walls</option>
             </select>
           </label>
+          <label className="field">Feeding machines
+            <select value={o.distribution ?? 'balanced'} onChange={(e) => set({ distribution: e.target.value as SchematicOptions['distribution'] })}>
+              <option value="balanced">Balanced (splitter trees, even from the start)</option>
+              <option value="manifold">Manifold (simpler, backs up to fill)</option>
+            </select>
+          </label>
           <label className="check"><input type="checkbox" checked={o.perimeterWalls} onChange={(e) => set({ perimeterWalls: e.target.checked })} /> Perimeter walls</label>
           <label className="check"><input type="checkbox" checked={o.showPower} onChange={(e) => set({ showPower: e.target.checked })} /> Power poles</label>
           <label className="check"><input type="checkbox" checked={o.showLabels} onChange={(e) => set({ showLabels: e.target.checked })} /> Machine labels</label>
@@ -258,6 +264,7 @@ export function SchematicView({ f }: { f: Factory }) {
               ))}
               <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#fff" stroke="#000" /></svg> Splitter</div>
               <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#333" stroke="#fff" /></svg> Merger</div>
+              {sch.balancing.length > 0 && <div><svg width="26" height="14"><rect x="1" y="1" width="24" height="12" rx="3" fill="#fff" stroke="#aaa" strokeWidth="2" /><text x="13" y="10.5" fontSize="8" fontWeight="700" textAnchor="middle" fill="#111">1→N</text></svg> Balanced splitter tree (1→N to a row's machines, ÷N to share the bus)</div>}
               <div><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#3fa0e0" stroke="#fff" /></svg> Pipe junction</div>
               <div><svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="none" stroke="#fff" strokeWidth="2" /></svg> Conveyor lift / vertical pipe</div>
               {o.showPower && <div><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill={C.pole} /></svg> Power pole</div>}
@@ -279,6 +286,7 @@ export function SchematicView({ f }: { f: Factory }) {
             <ul className="notes">{sch.notes.map((n) => <li key={n}>{n}</li>)}</ul>
           </section>
         </div>
+        {sch.balancing.length > 0 && <BalancingCard sch={sch} />}
       </div>
     </div>
   );
@@ -387,6 +395,17 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
           );
           case 'hole': return <rect key={k} x={x - 3} y={y - 3} width={6} height={6} fill="none" stroke={C.hole} strokeWidth={1.5}><title>Conveyor floor hole</title></rect>;
           case 'pole': return <circle key={k} cx={x} cy={y} r={Math.max(3, 0.8 * s)} fill={C.pole} stroke="#000"><title>Power pole</title></circle>;
+          case 'balancer': {
+            const bw = Math.max(26, 4.5 * s);
+            const bh = Math.max(12, 2.2 * s);
+            return (
+              <g key={k} opacity={o.logistics === 'visible' ? 1 : 0.75}>
+                <rect x={x - bw / 2} y={y - bh / 2} width={bw} height={bh} rx={3} fill="#fff" stroke={itemColor(m.item!)} strokeWidth={2} />
+                <T x={x} y={y + 3.5} fontSize={Math.max(8, Math.min(11, bh * 0.7))} fontWeight={700} fill="#111" textAnchor="middle">{m.label}</T>
+                <title>{m.title ?? 'Balanced splitter tree'}</title>
+              </g>
+            );
+          }
         }
         return null;
       })}
@@ -514,3 +533,36 @@ function Yard({ b, s }: { b: SourceBox; s: number }) {
 
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 16;
+
+/** Build steps for every balanced split, by floor. */
+function BalancingCard({ sch }: { sch: Schematic }) {
+  const [open, setOpen] = useState(true);
+  const floors = [...new Set(sch.balancing.map((b) => b.floor))];
+  const parts = sch.balancing.reduce((a, b) => ({ s: a.s + b.splitters, m: a.m + b.mergers }), { s: 0, m: 0 });
+  return (
+    <section className="card balancing-card">
+      <div className="row between wrap">
+        <h3>Load balancing</h3>
+        <button className="small ghost" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide steps' : 'Show steps'}</button>
+      </div>
+      <p className="muted small-text">
+        {sch.balancing.length} balanced split{sch.balancing.length === 1 ? '' : 's'} · {parts.s} splitters and {parts.m} mergers in total (already in the bill of materials).
+        Build each tree before connecting the machines, so every one starts at its share.
+      </p>
+      {open && floors.map((fi) => (
+        <div key={fi}>
+          {floors.length > 1 && <h4>Floor {fi + 1}</h4>}
+          <ol className="balancing-list">
+            {sch.balancing.filter((b) => b.floor === fi).sort((a, b) => (a.where === b.where ? 0 : a.where === 'bus' ? -1 : 1)).map((b, k) => (
+              <li key={k}>
+                <b><span className="mdot" style={{ background: itemColor(b.item) }} />{b.title}</b>
+                <ul>{b.steps.map((st) => <li key={st}>{st}</li>)}</ul>
+                {b.warn && <p className="warn-text small-text">{b.warn}</p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </section>
+  );
+}
