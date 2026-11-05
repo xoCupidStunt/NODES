@@ -4,7 +4,6 @@ import { buildSchematic, facingFor, type BeltPath, type Facing, type Floor, type
 import { defaultSchematic, type Factory, type SchematicOptions } from '../engine/types';
 import { useStore } from '../state';
 import { fmt } from './ui';
-import { BalancerBlock } from './BalancerDiagram';
 
 const C = {
   yard: '#262c35',
@@ -265,7 +264,6 @@ export function SchematicView({ f }: { f: Factory }) {
               ))}
               <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#fff" stroke="#000" /></svg> Splitter</div>
               <div><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#333" stroke="#fff" /></svg> Merger</div>
-              {sch.balancing.length > 0 && <div><svg width="26" height="14"><rect x="1" y="1" width="24" height="12" rx="3" fill="#fff" stroke="#aaa" strokeWidth="2" /><text x="13" y="10.5" fontSize="8" fontWeight="700" textAnchor="middle" fill="#111">1→N</text></svg> Balanced splitter tree (1→N to a row's machines, ÷N to share the bus)</div>}
               <div><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#3fa0e0" stroke="#fff" /></svg> Pipe junction</div>
               <div><svg width="16" height="16"><circle cx="8" cy="8" r="7" fill="none" stroke="#fff" strokeWidth="2" /></svg> Conveyor lift / vertical pipe</div>
               {o.showPower && <div><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill={C.pole} /></svg> Power pole</div>}
@@ -287,7 +285,6 @@ export function SchematicView({ f }: { f: Factory }) {
             <ul className="notes">{sch.notes.map((n) => <li key={n}>{n}</li>)}</ul>
           </section>
         </div>
-        {sch.balancing.length > 0 && <BalancingCard sch={sch} />}
       </div>
     </div>
   );
@@ -369,12 +366,12 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
         );
       })}
 
-      {shown.map((b, k) => <Belt key={k} b={b} s={s} />)}
-      {o.showRates && fl.belts.filter((b) => b.kind !== 'feed').map((b, k) => {
-        const [a, c] = [b.points[0], b.points[b.points.length - 1]];
+      {shown.map((b, k) => <Belt key={k} b={b} s={s} dashed={b.loop} />)}
+      {o.showRates && fl.belts.filter((b) => b.kind !== 'feed' && b.kind !== 'tree').map((b, k) => {
+        const [a, c] = b.labelAt ? [b.labelAt, b.labelAt] : [b.points[0], b.points[b.points.length - 1]];
         const vertical = Math.abs(a.x - c.x) < 0.1;
         const label = `${itemName(b.item)} ${fmt(b.rate, 1)}${b.fluid ? 'm³' : ''}/min · ${b.lanes > 1 ? b.lanes + '× ' : ''}${b.tier.replace('Conveyor Belt ', 'Belt ').replace('Pipeline ', 'Pipe ')}`;
-        if (vertical) return null;
+        if (vertical && !b.labelAt) return null;
         // After the row's last machine, level with its belt: clear of splitters, ports and the bus.
         return <T after key={'lbl' + k} x={Math.max(a.x, c.x) * s + 8} y={a.y * s + 3} fontSize={9} fill={C.text} opacity={b.hidden ? 0.7 : 1} paintOrder="stroke" stroke={C.bg} strokeWidth={3}>{label}</T>;
       })}
@@ -396,17 +393,6 @@ function FloorDrawing({ fl, s, o, sources }: { fl: Floor; s: number; o: Schemati
           );
           case 'hole': return <rect key={k} x={x - 3} y={y - 3} width={6} height={6} fill="none" stroke={C.hole} strokeWidth={1.5}><title>Conveyor floor hole</title></rect>;
           case 'pole': return <circle key={k} cx={x} cy={y} r={Math.max(3, 0.8 * s)} fill={C.pole} stroke="#000"><title>Power pole</title></circle>;
-          case 'balancer': {
-            const bw = Math.max((m.label?.length ?? 4) * 6.2 + 8, 4.5 * s);
-            const bh = Math.max(12, 2.2 * s);
-            return (
-              <g key={k} opacity={o.logistics === 'visible' ? 1 : 0.75} style={{ cursor: 'pointer' }} onClick={() => document.getElementById(`bal-${m.label?.split(' ')[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
-                <rect x={x - bw / 2} y={y - bh / 2} width={bw} height={bh} rx={3} fill="#fff" stroke={itemColor(m.item!)} strokeWidth={2} />
-                <T x={x} y={y + 3.5} fontSize={Math.max(8, Math.min(11, bh * 0.7))} fontWeight={700} fill="#111" textAnchor="middle">{m.label}</T>
-                <title>{m.title ?? 'Balanced splitter tree'}</title>
-              </g>
-            );
-          }
         }
         return null;
       })}
@@ -446,11 +432,11 @@ function Belt({ b, s, dashed }: { b: BeltPath; s: number; dashed?: boolean }) {
   // Add a midpoint so straight runs get a direction arrow in the middle.
   const pts = b.points.length === 2 ? [b.points[0], { x: (b.points[0].x + b.points[1].x) / 2, y: (b.points[0].y + b.points[1].y) / 2 }, b.points[1]] : b.points;
   const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x * s},${p.y * s}`).join(' ');
-  const w = Math.max(2, (b.kind === 'bus' ? 1.4 : 1.1) * s) * (b.lanes > 1 ? 1.4 : 1);
+  const w = Math.max(2, (b.kind === 'bus' ? 1.4 : b.kind === 'tree' ? 0.6 : 1.1) * s) * (b.lanes > 1 ? 1.4 : 1);
   return (
     <g>
       <path d={d} fill="none" stroke={color} strokeWidth={b.fluid ? w * 1.3 : w} strokeDasharray={dashed ? `${2 * s} ${1.5 * s}` : undefined}
-        markerMid={b.kind === 'feed' ? undefined : `url(#${markerId(color)})`} markerEnd={b.kind === 'bus' ? undefined : `url(#${markerId(color)})`}>
+        markerMid={b.kind === 'feed' || b.kind === 'tree' ? undefined : `url(#${markerId(color)})`} markerEnd={b.kind === 'bus' ? undefined : `url(#${markerId(color)})`}>
         <title>{`${itemName(b.item)} — ${fmt(b.rate, 2)}${b.fluid ? ' m³' : ''}/min on ${b.lanes > 1 ? b.lanes + '× ' : ''}${b.tier}${b.hidden ? ' (hidden)' : ''}`}</title>
       </path>
       {b.fluid && <path d={d} fill="none" stroke={C.bg} strokeWidth={Math.max(1, w * 0.45)} />}
@@ -535,29 +521,3 @@ function Yard({ b, s }: { b: SourceBox; s: number }) {
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 16;
 
-/** Build steps for every balanced split, by floor. */
-function BalancingCard({ sch }: { sch: Schematic }) {
-  const [open, setOpen] = useState(true);
-  const floors = [...new Set(sch.balancing.map((b) => b.floor))];
-  const parts = sch.balancing.reduce((a, b) => ({ s: a.s + b.splitters, m: a.m + b.mergers }), { s: 0, m: 0 });
-  return (
-    <section className="card balancing-card">
-      <div className="row between wrap">
-        <h3>Load balancing</h3>
-        <button className="small ghost" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide steps' : 'Show steps'}</button>
-      </div>
-      <p className="muted small-text">
-        {sch.balancing.length} balanced split{sch.balancing.length === 1 ? '' : 's'} · {parts.s} splitters and {parts.m} mergers in total (already in the bill of materials).
-        Each one is drawn below: S = Conveyor Splitter, M = Conveyor Merger, numbers are items per minute, dashed belts loop back. Click a B-marker on the plan to jump to its drawing.
-      </p>
-      {open && floors.map((fi) => (
-        <div key={fi}>
-          {floors.length > 1 && <h4>Floor {fi + 1}</h4>}
-          <div className="balancing-list">
-            {sch.balancing.filter((b) => b.floor === fi).map((b) => <BalancerBlock key={b.id} step={b} />)}
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}

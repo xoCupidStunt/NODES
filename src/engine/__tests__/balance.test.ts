@@ -41,18 +41,27 @@ describe('balanced schematic', () => {
     };
     const plan = buildPlan(f, { tier: 4, milestones: milestonesUpTo(4), mam: [], alts: [], shards: 0, sloops: 0 });
     const sch = buildSchematic(plan, { ...defaultSchematic, maxPerRow: 10 }, f.target);
-    const rows = sch.balancing.filter((b) => b.where === 'row');
-    expect(rows).toHaveLength(3);
-    expect(rows[0].graph).toMatchObject({ splitters: 7, mergers: 2 }); // 10 machines: split in two, then 1:5 each
-    expect(rows[0].id).toMatch(/^B[0-9]+$/);
-    const bus = sch.balancing.find((b) => b.where === 'bus')!;
-    expect(bus.graph.splitters).toBe(1); // three equal rows: one 3-way splitter
-    expect(bus.steps.join(' ')).toMatch(/at least what it needs/);
-    const splitters = sch.bom.find((b) => b.name === 'Conveyor Splitters')!.count;
-    expect(splitters).toBe(3 * 7 + 1); // three 1:10 balancers + one 3-way bus split
+    const fl = sch.floors[0];
+    const splitters = sch.bom.find((x) => x.name === 'Conveyor Splitters')!.count;
+    expect(splitters).toBe(3 * 7 + 1); // three 1:10 trees + one 3-way split of the bus
+    // Each row's tree is drawn in that row's input strip, above its machines.
+    for (const row of fl.rows) {
+      const top = Math.min(...fl.machines.filter((m) => m.rowId === row.id).map((m) => m.y));
+      const inRow = fl.markers.filter((m) => m.kind === 'splitter' && m.x >= row.x - 1 && m.x <= row.x + row.w + 1 && m.y > row.y && m.y < top);
+      expect(inRow).toHaveLength(7);
+    }
+    // The bus split sits in the gap between the bus and the rows.
+    const gap = fl.markers.filter((m) => m.kind === 'splitter' && fl.bus && m.x > fl.bus.x + fl.bus.w && m.x < fl.rows[0].x);
+    expect(gap).toHaveLength(1);
+    // Loop-backs are drawn (2 per 1:10 tree), and every machine's input is reached by a tree belt.
+    expect(fl.belts.filter((x) => x.loop)).toHaveLength(6);
+    for (const m of fl.machines) {
+      const p = m.inPorts[0];
+      expect(fl.belts.some((x) => x.kind === 'tree' && x.points.some((q) => Math.abs(q.x - p.x) < 0.01 && Math.abs(q.y - p.y) < 0.01))).toBe(true);
+    }
 
     const manifold = buildSchematic(plan, { ...defaultSchematic, maxPerRow: 10, distribution: 'manifold' }, f.target);
-    expect(manifold.balancing).toHaveLength(0);
+    expect(manifold.floors[0].belts.some((x) => x.kind === 'tree')).toBe(false);
     expect(manifold.notes.join(' ')).toMatch(/back up/);
   });
 });
