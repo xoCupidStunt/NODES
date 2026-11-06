@@ -118,13 +118,13 @@ export function Setup({ f }: { f: Factory }) {
           {u.overclock ? (
             <label className="check">
               <input type="checkbox" checked={f.useShards} onChange={(e) => update({ useShards: e.target.checked, clockCap: e.target.checked ? 250 : Math.min(100, f.clockCap) })} />
-              Use power shards to overclock — {planProgress.shards} spare{state.game ? <span className="muted"> ({state.progress.shards} owned, {state.game.shards.slotted} already in machines)</span> : null}
+              Use power shards to overclock — {f.lock ? <>{f.lock.progress.shards} spare <span className="muted">(locked for building — the count from when it was locked)</span></> : <>{planProgress.shards} spare{state.game ? <span className="muted"> ({state.progress.shards} owned, {state.game.shards.slotted} already in machines)</span> : null}</>}
             </label>
           ) : (
             <span className="muted small-text">Overclocking needs the “Overclock Production” MAM research.</span>
           )}
         </div>
-        {f.useShards && u.overclock && planProgress.shards === 0 && <p className="warn-text small-text">No spare power shards — every one you own is already in a machine, so nothing here can be overclocked.</p>}
+        {f.useShards && u.overclock && !f.lock && planProgress.shards === 0 && <p className="warn-text small-text">No spare power shards — every one you own is already in a machine, so nothing here can be overclocked.</p>}
         <p className="muted small-text">Power use grows faster than clock speed, so more machines at lower clocks use less power, while overclocking needs fewer buildings (and shards). Miners and water extractors follow the same setting.</p>
       </section>
 

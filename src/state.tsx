@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useReducer, type ReactNode } from 'react';
-import { buildPlan, type Plan } from './engine/plan';
+import { buildPlan, shardsFor, type Plan } from './engine/plan';
 import { defaultProgress, type Progress } from './engine/progression';
 import { defaultSchematic, type Factory } from './engine/types';
 import type { GameSync } from './engine/saveSync';
@@ -143,6 +143,29 @@ export function spareShards(s: { progress: Progress; game: { shards: { total: nu
   return Math.max(0, s.progress.shards - (s.game?.shards.slotted ?? 0));
 }
 
+/**
+ * Every factory's plan. A factory locked for building plans from its snapshot; the shards it still needs (its plan's
+ * shards minus those already in its machines in the game) are held back from the spare shards everyone else plans with.
+ */
+export function planAll(s: Pick<State, 'factories' | 'progress' | 'game'>) {
+  const out: Record<string, Plan> = {};
+  let held = 0;
+  for (const f of s.factories) {
+    if (!f.lock) continue;
+    out[f.id] = buildPlan(f, f.lock.progress);
+    held += Math.max(0, out[f.id].shardsUsed - shardsInGame(f));
+  }
+  const progress = { ...s.progress, shards: Math.max(0, spareShards(s) - held) };
+  for (const f of s.factories) if (!f.lock) out[f.id] = buildPlan(f, progress);
+  return { plans: out, planProgress: progress };
+}
+
+/** Power shards in a factory's machines and extractors as built in the game (0 if it isn't linked to the save). */
+export function shardsInGame(f: Factory) {
+  if (!f.game) return 0;
+  return [...f.game.groups.flatMap((x) => x.clocks), ...(f.game.extractors ?? []).flatMap((x) => x.clocks)].reduce((a, [c, n]) => a + shardsFor(c) * n, 0);
+}
+
 export function newFactory(n: number): Factory {
   return {
     id: Math.random().toString(36).slice(2, 10),
@@ -219,13 +242,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       /* storage full or blocked */
     }
   }, [state]);
-  // Shards already in machines in the game aren't free: plans only get the spare ones.
-  const planProgress = useMemo(() => ({ ...state.progress, shards: spareShards(state) }), [state.progress, state.game]); // eslint-disable-line react-hooks/exhaustive-deps
-  const plans = useMemo(() => {
-    const out: Record<string, Plan> = {};
-    for (const f of state.factories) out[f.id] = buildPlan(f, planProgress);
-    return out;
-  }, [state.factories, planProgress]);
+  // Shards already in machines in the game aren't free: plans only get the spare ones. A factory locked for building
+  // keeps planning from its snapshot, and the shards it still needs are held back from every other factory.
+  const { plans, planProgress } = useMemo(() => planAll(state), [state.factories, state.progress, state.game]); // eslint-disable-line react-hooks/exhaustive-deps
   const found = useMemo(() => foundOf(state), [state.game, state.progress, state.groupRules]); // eslint-disable-line react-hooks/exhaustive-deps
   const active = state.factories.find((f) => f.id === state.activeId) ?? null;
   const value = useMemo(() => ({ state, dispatch, active, plans, found, planProgress }), [state, active, plans, found, planProgress]);

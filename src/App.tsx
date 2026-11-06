@@ -13,6 +13,7 @@ import { BuiltView } from './components/BuiltView';
 import { useNewGameFactories } from './components/GameFactoriesCard';
 import { AccountPanel, CloudBox } from './components/AccountPanel';
 import { AccountMenu, ProfilePage } from './components/AccountMenu';
+import { LockControl, LockNotice } from './components/LockControl';
 
 const TABS: { id: View; label: string }[] = [
   { id: 'setup', label: '1 · Setup' },
@@ -109,7 +110,7 @@ export default function App() {
             const p = plans[f.id];
             return (
               <button key={f.id} className={`factory-item ${combining ? (pickedNow.includes(f.id) ? 'picked' : '') : f.id === state.activeId && state.view !== 'progress' && state.view !== 'world' ? 'on' : ''}`} onClick={() => (combining ? togglePick(f.id) : dispatch({ type: 'select', id: f.id }))}>
-                <div className="fi-name">{combining && <input type="checkbox" readOnly checked={pickedNow.includes(f.id)} tabIndex={-1} className="fi-check" />}{f.name}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
+                <div className="fi-name">{combining && <input type="checkbox" readOnly checked={pickedNow.includes(f.id)} tabIndex={-1} className="fi-check" />}{f.name}{f.lock && <span className="ingame-tag lock-mini" title="Locked for building">🔒</span>}{f.game && <span className="ingame-tag" title={f.game.missing ? "Not found in the last synced save" : "Linked to a factory in your save"}>{f.game.missing ? "gone?" : "in game"}</span>}</div>
                 <div className="muted">
                   {p?.status === 'ok' ? `${rateText(f.target, p.rate)} ` : ''}{itemName(f.target)}
                   {f.location ? ' · placed' : ''}
@@ -141,7 +142,10 @@ export default function App() {
                   <span className="ingame-tag">built in game</span>
                 </div>
               ) : (
-                <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
+                <>
+                  <input className="title-input" value={active.name} onChange={(e) => dispatch({ type: 'update', id: active.id, patch: { name: e.target.value } })} aria-label="Factory name" />
+                  <LockControl f={active} />
+                </>
               )}
               {active.game && state.view === 'schematic' ? (
                 <span className="muted small-text">Generated schematic — visual reference only</span>
@@ -155,6 +159,7 @@ export default function App() {
               )}
             </header>
             <div className="content">
+              <LockNotice f={active} />
               {(state.view === 'setup' || state.view === 'built') && <Setup f={active} />}
               {state.view === 'map' && <MapView f={active} />}
               {state.view === 'results' && <Results f={active} />}

@@ -429,3 +429,8 @@ details.compare .as-built { border: 0; padding: 0; margin: 10px 0 0; background:
 .sch-machine { cursor: grab; }
 .sch-machine.dragging { cursor: grabbing; }
 .sch-canvas svg { touch-action: pan-x pan-y; user-select: none; }
+
+/* Lock for building */
+.lock-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--accent2); }
+.lock-notice { border: 1px solid var(--accent); background: rgba(250, 149, 73, 0.08); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; font-size: 13px; }
+.lock-mini { border-color: transparent; background: transparent; padding: 0 2px; }

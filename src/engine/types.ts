@@ -1,3 +1,4 @@
+import type { Progress } from './progression';
 import type { Mode } from './solver';
 
 export interface SchematicOptions {
@@ -131,4 +132,9 @@ export interface Factory {
   also: AlsoProduct[];
   /** Set when the factory was added from the synced save. */
   game?: BuiltInfo;
+  /**
+   * Locked for building: the plan keeps using this snapshot of progress and spare power shards, so new saves (with
+   * shards now slotted into its machines as it's built) don't change its clocks or machine counts.
+   */
+  lock?: { at: number; progress: Progress };
 }
