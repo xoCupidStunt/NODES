@@ -165,3 +165,33 @@ describe('moving machines on the schematic', () => {
     expect(short(mid).x + short(mid).w / 2).toBeCloseTo(wide(mid).x + wide(mid).w / 2, 0);
   });
 });
+
+describe('bus lanes', () => {
+  it('runs each lane the way its items move, with mergers and splitters only where they belong', async () => {
+    const { buildPlan } = await import('../plan');
+    const { buildSchematic } = await import('../schematic');
+    const { milestonesUpTo } = await import('../progression');
+    const { defaultSchematic } = await import('../types');
+    const { schematicsById } = await import('../../data/game');
+    const alts = Object.keys(schematicsById).filter((id) => /Alternate/i.test(id));
+    const f = {
+      id: 'a', name: 'T', target: 'Desc_ModularFrameHeavy_C', rate: 10, mode: 'power' as const, placement: 'manual' as const, location: null,
+      nodes: [], extraSupply: { Desc_OreIron_C: 900, Desc_Coal_C: 600, Desc_Stone_C: 600 }, also: [], imports: [], excluded: [], unlimitedRaw: false,
+      clockCap: 100, useShards: false, schematic: { ...defaultSchematic }, createdAt: 0,
+    };
+    const plan = buildPlan(f, { tier: 9, milestones: milestonesUpTo(9), mam: [], alts, shards: 0, sloops: 0 });
+    const fl = buildSchematic(plan, { ...defaultSchematic, floors: 2 }, f.target).floors[0];
+    const steel = 'Desc_SteelIngot_C';
+    const bus = fl.belts.filter((b) => b.item === steel && b.kind === 'bus');
+    const lift = fl.markers.find((m) => m.item === steel && m.kind === 'lift')!;
+    const at = (y: number) => fl.markers.filter((m) => m.item === steel && Math.abs(m.x - lift.x) < 0.01 && Math.abs(m.y - y) < 0.05).map((m) => m.kind);
+    // Steel is made on this floor and goes up the lift: the lane runs up to it, not down from it.
+    const toLift = bus.find((b) => Math.abs(b.points[b.points.length - 1].y - lift.y) < 0.01)!;
+    expect(toLift.points[0].y).toBeGreaterThan(lift.y);
+    expect(bus.some((b) => Math.abs(b.points[0].y - lift.y) < 0.01)).toBe(false);
+    // The first row's steel splits there (up to the lift, down to the rows); the next row merges onto it.
+    const joins = [...new Set(bus.flatMap((b) => b.points.map((p) => p.y)))].filter((y) => Math.abs(y - lift.y) > 0.01).sort((a, b) => a - b);
+    expect(at(toLift.points[0].y)).toEqual(['splitter']);
+    expect(at(joins[joins.length - 1])).not.toContain('merger');
+  });
+});

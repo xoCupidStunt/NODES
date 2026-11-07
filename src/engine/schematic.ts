@@ -452,6 +452,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
     const trees: BusTree[] = [];
     for (const [item, list] of Object.entries(users)) {
       if (list.length < 2) continue;
+      if (list.length === 2 && list.some((x) => x.kind === 'row') && list.some((x) => x.kind !== 'row')) continue;
       list.sort((a, b) => b.need - a.need);
       const rs = ratioSplit(list.map((x) => x.need), 0.05, 18);
       const g = ratioBalancer(rs.shares, list.reduce((a, x) => a + x.need, 0));
@@ -631,9 +632,37 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
     /** Where each direct line leaves its makers' row and reaches its users' row on this floor. */
     const lineOut = new Map<number, Pt>();
     const lineIn = new Map<number, Pt>();
-    const touch = (item: string, y: number) => {
+    /** Where each bus lane gets items (src) and gives them out (sink) on this floor, to know which way it runs. */
+    const laneEnds: Record<string, { src: number[]; sink: number[] }> = {};
+    /** Where row outputs join a lane, and where rows take straight from it: mergers / splitters go there as needed. */
+    const joins: { item: string; y: number }[] = [];
+    const takes: { item: string; y: number }[] = [];
+    const touch = (item: string, y: number, role: 'src' | 'sink') => {
       const s = laneSpan[item];
       laneSpan[item] = s ? [Math.min(s[0], y), Math.max(s[1], y)] : [y, y];
+      (laneEnds[item] ??= { src: [], sink: [] })[role].push(y);
+    };
+    /** A splitter tree next to the bus already takes this item to the lift or the output, so the lane needn't. */
+    const treeFeeds = (item: string, kind: 'lift' | 'out') => busTrees[fi].some((t) => t.item === item && t.users.some((x) => x.kind === kind));
+    /**
+     * The stretches of a lane that carry items, each running from where items get on toward where they get off:
+     * down where something above feeds something below, up where something below feeds something above.
+     */
+    const laneRuns = (item: string) => {
+      const e = laneEnds[item];
+      if (!e) return [];
+      const ys = [...new Set([...e.src, ...e.sink].map((v) => Math.round(v * 100) / 100))].sort((a, b) => a - b);
+      const runs: { a: number; b: number; up: boolean }[] = [];
+      for (let k = 0; k + 1 < ys.length; k++) {
+        const [a, b] = [ys[k], ys[k + 1]];
+        const down = e.src.some((v) => v <= a + 0.01) && e.sink.some((v) => v >= b - 0.01);
+        const up = !down && e.src.some((v) => v >= b - 0.01) && e.sink.some((v) => v <= a + 0.01);
+        if (!down && !up) continue;
+        const last = runs[runs.length - 1];
+        if (last && last.up === up && Math.abs(last.b - a) < 0.01) last.b = b;
+        else runs.push({ a, b, up });
+      }
+      return runs;
     };
 
     let y = top;
@@ -697,7 +726,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         }
         if (!balanced || isFluid(item)) {
           belts.push({ item, fluid: isFluid(item), points: [{ x: laneX[item], y: ly }, { x: lastX, y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', ...t });
-          touch(item, ly);
+          touch(item, ly, 'sink');
           markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'splitter', item });
           for (const m of rowMs) {
             const p = m.inPorts[j];
@@ -790,8 +819,8 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         // The line starts at the far-end merger (or the far machine), so nothing sticks out past it.
         const startX = grouped ? mergerX(groups[0]) : lastX;
         belts.push({ item, fluid: isFluid(item), points: [{ x: startX, y: ly }, { x: laneX[item], y: ly }], rate, hidden: hiddenManifold, kind: 'manifold', labelAt: { x: lastX, y: ly }, ...t });
-        touch(item, ly);
-        markers.push({ x: laneX[item], y: ly, kind: isFluid(item) ? 'junction' : 'merger', item });
+        touch(item, ly, 'src');
+        joins.push({ item, y: ly });
         const feed = (pts: Pt[], m: PlacedMachine) => {
           belts.push({ item, fluid: isFluid(item), points: pts, rate: perMachine(r.out[j][1]), hidden: hiddenManifold, kind: 'feed', ...transportName(item, perMachine(r.out[j][1])) });
           if (opt.logistics === 'underfloor') markers.push({ x: m.outPorts[j].x, y: m.outPorts[j].y + 1, kind: 'hole', item });
@@ -836,21 +865,22 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
       if (fi === 0 && inputItems.has(item)) {
         const line = plan.inputs.filter((x) => x.item === item).reduce((a, b) => a + b.rate, 0);
         ports.push({ x: lane.x, y: portTop, item, rate: line, dir: 'in', label: `IN ${itemName(item)}` });
-        touch(item, portTop);
+        touch(item, portTop, 'src');
       }
+      const outByTree = treeFeeds(item, 'out');
       if (item === target && fi === lastFloorFor(item)) {
         ports.push({ x: lane.x, y: portBottom, item, rate: plan.rate, dir: 'out', label: `OUT ${itemName(item)}${fi > 0 ? ' (lift to ground)' : ''}` });
-        touch(item, portBottom);
+        if (!outByTree) touch(item, portBottom, 'sink');
       }
       const extra = plan.also.find(([i]) => i === item);
       if (extra && item !== target && fi === lastFloorFor(item)) {
         ports.push({ x: lane.x, y: portBottom, item, rate: extra[1], dir: 'out', label: `OUT ${itemName(item)}${fi > 0 ? ' (lift to ground)' : ''}` });
-        touch(item, portBottom);
+        if (!outByTree) touch(item, portBottom, 'sink');
       }
       const sur = plan.surplus.find(([i]) => i === item);
       if (sur && item !== target && fi === lastFloorFor(item)) {
         ports.push({ x: lane.x, y: portBottom, item, rate: sur[1], dir: 'out', label: `SURPLUS ${itemName(item)}` });
-        touch(item, portBottom);
+        if (!outByTree) touch(item, portBottom, 'sink');
       }
       // Lifts where an item has to reach another floor.
       const otherMakers = [...(makers[item] ?? [])].some((f2) => f2 !== fi);
@@ -859,7 +889,9 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         const ly = top - 3;
         const up = madeHere ? [...usersOf[item]].some((f2) => f2 > fi) : [...makers[item]].some((f2) => f2 < fi);
         markers.push({ x: lane.x, y: ly, kind: 'lift', item, label: madeHere ? (up ? '↑' : '↓') : up ? '↑in' : '↓in' });
-        touch(item, ly);
+        // Coming in from another floor, the lift feeds the lane; going out, the lane (or a splitter tree) feeds it.
+        if (!madeHere) touch(item, ly, 'src');
+        else if (!treeFeeds(item, 'lift')) touch(item, ly, 'sink');
       }
     }
     // Direct lines: each has its own track in the gap; a line between floors goes up or down a lift there.
@@ -886,7 +918,7 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
         const map = (c: number, rr: number) => ({ x: gx + rr * SIDE_LEVEL, y: bt.gy + c * LEAF });
         const root = map(bt.lay.col.get(0)!, 0);
         belts.push({ item: bt.item, fluid: false, points: [{ x: laneX[bt.item], y: root.y }, root], rate: bt.g.input, hidden: hiddenBus, kind: 'tree', ...transportName(bt.item, bt.g.input) });
-        touch(bt.item, root.y);
+        touch(bt.item, root.y, 'sink');
         const outs = new Map<number, Pt>();
         drawTree(bt, map, (d, c, rr) => { const p = map(c, rr); outs.set(d, p); return p; }, bt.item, belts, markers);
         const trackX0 = gx + (bt.lay.rows - 1) * SIDE_LEVEL + 1.5;
@@ -910,16 +942,37 @@ type Tree = { g: BalancerGraph; lay: ReturnType<typeof layoutBalancer> };
       for (const en of entries) {
         if (fed.has(`${en.item}|${en.rowId}`)) continue;
         belts.push({ item: en.item, fluid: false, points: [{ x: laneX[en.item], y: en.pt.y }, en.pt], rate: 0, hidden: hiddenBus, kind: 'tree', tier: '', lanes: 1 });
-        touch(en.item, en.pt.y);
+        touch(en.item, en.pt.y, 'sink');
+        takes.push({ item: en.item, y: en.pt.y });
       }
     }
 
+    const runsOf = new Map(lanes.map((l) => [l.item, laneRuns(l.item)]));
     for (const lane of lanes) {
-      const span = laneSpan[lane.item];
-      if (!span) continue;
       const rate = flowRate(lane.item);
-      belts.push({ item: lane.item, fluid: lane.fluid, points: [{ x: lane.x, y: span[0] }, { x: lane.x, y: span[1] }], rate, hidden: hiddenBus, kind: 'bus', ...transportName(lane.item, rate) });
+      for (const r of runsOf.get(lane.item)!) {
+        const pts = [{ x: lane.x, y: r.a }, { x: lane.x, y: r.b }];
+        belts.push({ item: lane.item, fluid: lane.fluid, points: r.up ? pts.reverse() : pts, rate, hidden: hiddenBus, kind: 'bus', ...transportName(lane.item, rate) });
+      }
     }
+    // Where a row's output joins a lane: a merger if items already arrive along the lane, a splitter if it heads
+    // both ways from there. Where a row takes from a lane that carries on past it: a splitter.
+    const flowAt = (item: string, y: number) => {
+      let into = 0, away = 0;
+      for (const r of runsOf.get(item) ?? []) {
+        const [from, to] = r.up ? [r.b, r.a] : [r.a, r.b];
+        if (Math.abs(to - y) < 0.02) into++;
+        else if (Math.abs(from - y) < 0.02) away++;
+        else if (y > r.a && y < r.b) { into++; away++; } // the lane runs on past it
+      }
+      return { into, away };
+    };
+    for (const j of joins) {
+      const { into, away } = flowAt(j.item, j.y);
+      const kind = into > 0 ? 'merger' : away > 1 ? 'splitter' : null;
+      if (kind) markers.push({ x: laneX[j.item], y: j.y, kind: isFluid(j.item) ? 'junction' : kind, item: j.item });
+    }
+    for (const t of takes) if (flowAt(t.item, t.y).away > 0) markers.push({ x: laneX[t.item], y: t.y, kind: 'splitter', item: t.item });
 
     // Walls
     if (opt.perimeterWalls) {
